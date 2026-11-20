@@ -39,7 +39,7 @@ class ExtensionHandshakeTest {
         override fun unloadAll() { events += "unload" }
         override fun disconnect(reason: String) { events += "disconnect:$reason" }
         var reloadDone: ((String?) -> Unit)? = null
-        override fun reloadResources(done: (error: String?) -> Unit) { events += "reload"; reloadDone = done }
+        override fun reloadResources(assets: Map<String, ByteArray>, done: (error: String?) -> Unit) { events += "reload:${assets.keys.sorted()}"; reloadDone = done }
         val mods = HashSet<String>()
         override fun isModLoaded(id: String) = id in mods
     }
@@ -359,8 +359,11 @@ class ExtensionHandshakeTest {
         runToEnd(h)
         assertEquals(Phase.RELOADING, h.phase)
         assertFalse(io.sent.contains(ExtensionsReady(true)), "ready only after the reload")
-        assertEquals(listOf("load:a", "load:r", "reload"), io.events.filter { it.startsWith("load:") || it == "reload" })
+        // resources are mounted before any Lua runs, so main.lua can use its own sounds and fonts
+        assertEquals(listOf("reload:[r/models/item/a.json]"), io.events.filter { it.startsWith("load:") || it.startsWith("reload") })
         io.reloadDone!!(null)
+        runToEnd(h)
+        assertEquals(listOf("reload:[r/models/item/a.json]", "load:a", "load:r"), io.events.filter { it.startsWith("load:") || it.startsWith("reload") })
         assertEquals(Phase.DONE, h.phase)
         assertEquals(ExtensionsReady(true), io.sent.last())
     }
@@ -387,7 +390,7 @@ class ExtensionHandshakeTest {
         h.onManifest(manifest)
         runToEnd(h)
         assertEquals(Phase.DONE, h.phase)
-        assertFalse("reload" in io.events)
+        assertFalse(io.events.any { it.startsWith("reload") })
     }
 
     @Test

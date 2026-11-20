@@ -56,9 +56,6 @@ class ExtensionManager(
     private val textures = HashMap<String, IntArray>()
     private val translations = ArrayList<String>()
 
-    /** `assets/` trees of the loaded packages (paths relative to `assets/`), mounted as resource pack. */
-    val assets: Map<String, ByteArray> get() = assetFiles
-    private val assetFiles = LinkedHashMap<String, ByteArray>()
     private var serverKey = ""
 
     val loaded: Collection<LuaExtension> get() = extensions.values
@@ -82,7 +79,6 @@ class ExtensionManager(
             ExtensionNamespaces.problem(pkg.id, FabricLoader.getInstance()::isModLoaded)?.let { throw ExtensionPackageException(it) }
             registerTextures(pkg)
             registerTranslations(pkg)
-            assetFiles.putAll(pkg.assets)
             val extension = LuaExtension(pkg, this, LuaLimits())
             extensions[pkg.id] = extension
             extension.load()
@@ -107,7 +103,6 @@ class ExtensionManager(
         textures.clear()
         translations.forEach(DynamicTranslations::remove)
         translations.clear()
-        assetFiles.clear()
     }
 
     private fun registerTextures(pkg: ExtensionPackage) {
@@ -322,7 +317,7 @@ class ExtensionManager(
     override fun playSound(id: String, volume: Float, pitch: Float) {
         val identifier = Identifier.tryParse(id) ?: return
         minecraft.soundManager.play(
-            SimpleSoundInstance(identifier, SoundSource.MASTER, volume, pitch, SoundInstance.createUnseededRandom(), false, 0,
+            SimpleSoundInstance(identifier, SoundSource.UI, volume, pitch, SoundInstance.createUnseededRandom(), false, 0,
                 SoundInstance.Attenuation.NONE, 0.0, 0.0, 0.0, true),
         )
     }

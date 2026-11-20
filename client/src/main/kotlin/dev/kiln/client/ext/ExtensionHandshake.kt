@@ -54,10 +54,11 @@ class ExtensionHandshake(
         fun isModLoaded(id: String): Boolean = false
 
         /**
-         * Mounts the `assets/` of the loaded packages as resource pack and reloads the game's resources; calls
-         * [done] on the client thread with `null` or a readable error. Only called when a package has assets.
+         * Mounts [assets] (paths relative to `assets/` of all verified packages) as resource pack and reloads the
+         * game's resources, before any extension is started; calls [done] on the client thread with `null` or a
+         * readable error. Only called when a package has assets.
          */
-        fun reloadResources(done: (error: String?) -> Unit) = done(null)
+        fun reloadResources(assets: Map<String, ByteArray>, done: (error: String?) -> Unit) = done(null)
     }
 
     enum class Phase { WAIT_WELCOME, WAIT_MANIFEST, CONSENT, DOWNLOADING, LOADING, RELOADING, DONE, FAILED, DECLINED }
@@ -75,6 +76,9 @@ class ExtensionHandshake(
 
     var phase: Phase = Phase.WAIT_WELCOME
         private set
+
+    /** The extensions' resource pack is mounted (or there is none); Lua starts only then. */
+    private var resourcesReady = false
 
     var items: List<Item> = emptyList()
         private set
@@ -201,6 +205,27 @@ class ExtensionHandshake(
             }
             return
         }
+        // every package verified: mount their resources before any Lua runs (main.lua may use its sounds/fonts)
+        if (!resourcesReady) {
+            val assets = LinkedHashMap<String, ByteArray>()
+            for (item in items) item.pkg?.assets?.let(assets::putAll)
+            if (assets.isEmpty()) {
+                resourcesReady = true
+            } else {
+                phase = Phase.RELOADING
+                io.reloadResources(assets) { error ->
+                    if (phase != Phase.RELOADING) return@reloadResources
+                    if (error == null) {
+                        resourcesReady = true
+                        phase = Phase.LOADING
+                    } else {
+                        io.unloadAll()
+                        fail("Ressourcen konnten nicht geladen werden: $error")
+                    }
+                }
+                return
+            }
+        }
         if (items.none { it.status == Status.DONE }) io.beginLoad()
         val toStart = items.firstOrNull { it.status == Status.STARTING }
         if (toStart != null) {
@@ -222,20 +247,7 @@ class ExtensionHandshake(
             }
             return
         }
-        if (items.all { it.status == Status.DONE }) {
-            if (items.none { it.pkg?.assets?.isNotEmpty() == true }) return ready()
-            // resource packs from the extensions: mounted and reloaded before the player enters the world
-            phase = Phase.RELOADING
-            io.reloadResources { error ->
-                if (phase != Phase.RELOADING) return@reloadResources
-                if (error == null) {
-                    ready()
-                } else {
-                    io.unloadAll()
-                    fail("Ressourcen konnten nicht geladen werden: $error")
-                }
-            }
-        }
+        if (items.all { it.status == Status.DONE }) ready()
     }
 
     private fun ready() {

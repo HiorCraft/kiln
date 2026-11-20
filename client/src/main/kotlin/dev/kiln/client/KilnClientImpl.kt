@@ -150,10 +150,10 @@ class KilnClientImpl(
 
         override fun isModLoaded(id: String) = FabricLoader.getInstance().isModLoaded(id)
 
-        override fun reloadResources(done: (error: String?) -> Unit) {
+        override fun reloadResources(assets: Map<String, ByteArray>, done: (error: String?) -> Unit) {
             val minecraft = Minecraft.getInstance()
-            KilnPackSource.set(extensions.assets)
-            logger.info("Reloading resources with {} extension asset file(s)", extensions.assets.size)
+            KilnPackSource.set(assets)
+            logger.info("Reloading resources with {} extension asset file(s)", assets.size)
             // failures do not complete the future; MinecraftReloadMixin reports them through KilnResourceReload
             KilnResourceReload.CLIENT.begin { error -> if (session === this) done(error) }
             minecraft.reloadResourcePacks().whenComplete { _, error ->
