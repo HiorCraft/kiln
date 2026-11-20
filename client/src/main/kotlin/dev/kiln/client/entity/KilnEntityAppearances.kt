@@ -17,6 +17,8 @@ object KilnEntityAppearances {
 
     fun get(entityId: Int): Entry? = entries[entityId]
 
+    fun isEmpty(): Boolean = entries.isEmpty()
+
     fun set(appearance: EntityAppearance) {
         val old = entries[appearance.entityId]
         val entry = Entry(appearance)

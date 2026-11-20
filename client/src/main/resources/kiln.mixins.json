@@ -9,6 +9,7 @@
     "CreativeModeTabMixin",
     "CreativeModeTabsAccessor",
     "EntityCollisionMixin",
+    "EntityIdAccessor",
     "EntityRenderDispatcherMixin",
     "EntityRenderersMixin",
     "GameRendererMixin",

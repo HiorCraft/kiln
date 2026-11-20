@@ -14,7 +14,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 abstract class LivingEntityDimensionsMixin {
 	@Inject(method = "getDefaultDimensions", at = @At("HEAD"), cancellable = true)
 	private void kiln$customSize(Pose pose, CallbackInfoReturnable<EntityDimensions> cir) {
-		KilnEntityAppearances.Entry entry = KilnEntityAppearances.INSTANCE.get(((LivingEntity) (Object) this).getId());
+		// also called from entity constructors, before an id is assigned (getId() would throw)
+		if (KilnEntityAppearances.INSTANCE.isEmpty()) return;
+		KilnEntityAppearances.Entry entry = KilnEntityAppearances.INSTANCE.get(((EntityIdAccessor) this).kiln$rawId());
 		if (entry != null) cir.setReturnValue(EntityDimensions.scalable(entry.getAppearance().getWidth(), entry.getAppearance().getHeight()));
 	}
 }
