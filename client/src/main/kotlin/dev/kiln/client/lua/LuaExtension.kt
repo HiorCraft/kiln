@@ -76,10 +76,12 @@ interface ExtensionHost {
  * `ui.lerpColor`, `ui.viewport`, `items`, `time`, `clock`, `player`, `require`, `export`, `import`, `readonly` are
  * always there.
  *
- * **No borrowing of permissions through imports:** every permission-gated function additionally requires the
- * permission from the *principal* of the running call ([LuaExecution.principal], the extension the host called):
- * an extension without `channels` that calls an imported function which sends on the API extension's channel gets
- * a Lua error. The principal also pays the instruction budget of everything that runs in its call.
+ * **No borrowing of permissions:** every permission-gated function requires the permission from this extension, from
+ * the *principal* of the running call ([LuaExecution.principal], the extension the host called) and from the
+ * extension whose code called it ([LuaExecution.caller]), see [checkCaller]: an extension without `channels` that
+ * calls an imported function which sends on the API extension's channel gets a Lua error, and so does one that got
+ * hold of another extension's raw `ch.send`. The principal also pays the instruction budget of everything that runs
+ * in its call.
  *
  * After a runtime error the extension is dead ([alive] = false): nothing of it runs again, the host is notified once.
  */
@@ -105,8 +107,13 @@ class LuaExtension(
     var exported: LuaValue = LuaValue.NIL
         private set
 
-    /** Read-only views of this extension's values for importers. */
+    /** Read-only views of this extension's values (`kiln.readonly`, no holder). */
     val exports = LuaExports(this)
+
+    private val importerViews = HashMap<LuaExtension, LuaExports>()
+
+    /** Read-only views of this extension's export for [importer] (functions remember their holder). */
+    fun exportsFor(importer: LuaExtension): LuaExports = importerViews.getOrPut(importer) { LuaExports(this, importer) }
 
     val items = LuaItems({ host.decodeItem(it) })
 
@@ -117,6 +124,9 @@ class LuaExtension(
         private set
 
     private var inCloseCallback = false
+
+    /** [ExtensionHost.clock] until which `ui.open` refuses (after the player forced a screen of this extension shut). */
+    private var openBlockedUntil = Double.NEGATIVE_INFINITY
     private val openTimes = ArrayDeque<Long>()
     private val soundTimes = ArrayDeque<Long>()
 
@@ -164,13 +174,46 @@ class LuaExtension(
     private fun has(permission: String) = permission in pkg.permissions
 
     /**
-     * Permission check against the principal of the running call: an extension calling into this one (through an
-     * import) must hold [permission] itself. Throws a Lua error otherwise.
+     * Permission check of every gated API function of this extension; a Lua error unless **all** of these hold
+     * [permission] (effective rights = intersection, a function never runs with more rights than its owner):
+     * - this extension, the owner of the API function (always true for functions that exist, checked anyway);
+     * - the principal of the running call ([LuaExecution.principal], the extension the host called); there must be
+     *   one: outside a runtime call no gated function runs;
+     * - the extension whose Lua code called the function directly ([LuaExecution.caller]): a raw API function handed
+     *   to (or stolen by) another extension cannot be used by that extension's code, also not inside a call of this
+     *   extension (e.g. a callback of the other extension that this one runs). The call must be direct: a `CALL` of
+     *   Lua code or `pcall(f, ...)`; never as a metamethod (`__index`, `__tostring`, `__call`, ...) or through a
+     *   library function (`tostring`, `table.sort`, ...), where the code that triggers it is not its caller;
+     * - every importer holding an exported function that is running now ([ExportedFunction], [LuaExports.holder]):
+     *   an imported function handed back to its exporter (callback, metamethod) does not lend the exporter's rights.
+     *
+     * [function] is the gated function itself (to recognise its direct call).
      */
-    internal fun checkCaller(permission: String) {
-        val principal = LuaExecution.principal?.owner as? LuaExtension ?: return
-        if (principal === this || permission in principal.pkg.permissions) return
-        throw LuaError("permission '$permission' missing: extension '${principal.id}' cannot use it through '$id'")
+    internal fun checkCaller(permission: String, function: LuaValue? = null) {
+        if (!has(permission)) throw LuaError("permission '$permission' missing: extension '$id' does not have it")
+        val principal = LuaExecution.principal?.owner as? LuaExtension
+            ?: throw LuaError("permission '$permission': API of '$id' used outside a call of the runtime")
+        if (principal !== this && permission !in principal.pkg.permissions) {
+            throw LuaError("permission '$permission' missing: extension '${principal.id}' cannot use it through '$id'")
+        }
+        for (holder in LuaExecution.activeHolders) {
+            if (holder is LuaExtension && holder !== this && permission !in holder.pkg.permissions) {
+                throw LuaError("permission '$permission' missing: extension '${holder.id}' cannot use it through a function it imported from '$id'")
+            }
+        }
+        val isTarget: (LuaValue) -> Boolean = { v -> function != null && (v === function || (v is ExportedFunction && v.target === function)) }
+        when (val caller = LuaExecution.caller(isTarget)) {
+            LuaExecution.Caller.Host -> {}
+            LuaExecution.Caller.Indirect -> throw LuaError("permission '$permission': API functions of '$id' may only be called directly (not as a metamethod or through a library function)")
+            LuaExecution.Caller.Unknown -> throw LuaError("permission '$permission': caller of '$id' API is unknown")
+            is LuaExecution.Caller.Script -> {
+                val owner = caller.runtime.owner as? LuaExtension
+                    ?: throw LuaError("permission '$permission': caller of '$id' API is unknown")
+                if (owner !== this && permission !in owner.pkg.permissions) {
+                    throw LuaError("permission '$permission' missing: code of extension '${owner.id}' cannot use it through '$id'")
+                }
+            }
+        }
     }
 
     // ---- loading ------------------------------------------------------------------------------------------
@@ -439,7 +482,7 @@ class LuaExtension(
     /** An API function that needs [permission] from this extension (it exists only then) and from the caller. */
     private fun gated(permission: String, body: (Varargs) -> Varargs): LuaFunction = object : VarArgFunction() {
         override fun invoke(args: Varargs): Varargs {
-            checkCaller(permission)
+            checkCaller(permission, this)
             return body(args)
         }
     }
@@ -458,7 +501,7 @@ class LuaExtension(
         val dependency = host.extension(depId) ?: throw LuaError("dependency '$depId' is not loaded")
         if (!dependency.alive) throw LuaError("dependency '$depId' is unloaded")
         if (dependency.exported.isnil()) throw LuaError("'$depId' exports nothing (kiln.export)")
-        return dependency.exports.wrap(dependency.exported)
+        return dependency.exportsFor(this).wrap(dependency.exported)
     }
 
     // ---- screens ------------------------------------------------------------------------------------------
@@ -486,6 +529,7 @@ class LuaExtension(
         val def = screenDefs[name] ?: throw LuaError("unknown screen '$type' (define it with kiln.ui.screen)")
         if (loading) throw LuaError("screens cannot be opened while the extension loads")
         if (inCloseCallback) throw LuaError("screens cannot be opened from a close callback")
+        if (host.clock() < openBlockedUntil) return false
         val now = System.nanoTime()
         while (openTimes.isNotEmpty() && now - openTimes.first() >= 10_000_000_000L) openTimes.removeFirst()
         if (openTimes.size >= MAX_OPENS_PER_10S) throw LuaError("too many screens opened (limit $MAX_OPENS_PER_10S per 10 s)")
@@ -498,6 +542,15 @@ class LuaExtension(
             return false
         }
         return true
+    }
+
+    /**
+     * The player used the guaranteed way out of this extension's screen (Shift+Escape / repeated Escape): it may not
+     * open a screen again for [FORCED_OUT_SECONDS], so it cannot trap the player by reopening at once (HUD render,
+     * channel handler, ...).
+     */
+    internal fun forcedOut() {
+        openBlockedUntil = host.clock() + FORCED_OUT_SECONDS
     }
 
     /** The host removed [session] from the screen (Escape, close, replaced). */
@@ -650,6 +703,9 @@ class LuaExtension(
         const val API_VERSION = 2
         const val MAX_SCREENS = 32
         const val MAX_OPENS_PER_10S = 10
+
+        /** Seconds an extension cannot open screens after the player forced one of them shut. */
+        const val FORCED_OUT_SECONDS = 10.0
         const val MAX_SOUNDS_PER_SECOND = 10
 
         /** `kiln.ui.sound` / `s:sound` names (mapped to vanilla sound events by the runtime). */

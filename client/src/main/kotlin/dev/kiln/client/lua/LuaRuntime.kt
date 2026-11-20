@@ -1,9 +1,14 @@
 package dev.kiln.client.lua
 
 import org.luaj.vm2.Globals
+import org.luaj.vm2.Lua
 import org.luaj.vm2.LuaError
 import org.luaj.vm2.LuaValue
+import org.luaj.vm2.Prototype
 import org.luaj.vm2.Varargs
+import java.lang.ref.WeakReference
+import java.util.Collections
+import java.util.WeakHashMap
 
 /** A script failed or exceeded a limit; the extension must be unloaded. [message] is safe to show to the player. */
 class LuaScriptException(message: String, cause: Throwable? = null) : Exception(message, cause)
@@ -26,14 +31,86 @@ object LuaExecution {
 
     val active: Boolean get() = principal != null
 
+    /**
+     * Holders of the exported functions running now ([ExportedFunction.holder], innermost last): an importer that
+     * calls (or hands on) a function it imported adds its own permissions to the check of everything that runs inside.
+     */
+    private val holders = ArrayList<Any>()
+    val activeHolders: List<Any> get() = holders
+
+    internal fun pushHolder(holder: Any) { holders += holder }
+
+    internal fun popHolder() { if (holders.isNotEmpty()) holders.removeAt(holders.size - 1) }
+
     internal fun enter(runtime: LuaRuntime, hook: SandboxHook) {
         principal = runtime
         activeHook = hook
+        holders.clear()
     }
 
     internal fun exit() {
         principal = null
         activeHook = null
+        holders.clear()
+    }
+
+    /** Owner (environment) of every compiled function prototype; closures can only come from these (no `load`). */
+    private val owners: MutableMap<Prototype, WeakReference<Globals>> = Collections.synchronizedMap(WeakHashMap())
+
+    /**
+     * Records [globals] as owner of [prototype] and all functions nested in it, and turns tail calls into plain
+     * calls: LuaJ runs a tail call *after* the calling function's frame is gone, so the callee would appear to be
+     * called by the caller's caller (see [caller]). `return f(x)` compiles to `TAILCALL A B 0; RETURN A 0`, and
+     * `CALL A B 0` (all results to the stack top) followed by that `RETURN` returns exactly the same values. The only
+     * difference: tail calls now count towards [LuaLimits.maxCallDepth].
+     */
+    internal fun registerChunk(prototype: Prototype, globals: Globals) {
+        val pending = ArrayDeque<Prototype>()
+        pending += prototype
+        while (pending.isNotEmpty()) {
+            val p = pending.removeLast()
+            owners[p] = WeakReference(globals)
+            val code = p.code
+            for (i in code.indices) {
+                val instruction = code[i]
+                if (Lua.GET_OPCODE(instruction) == Lua.OP_TAILCALL && Lua.GETARG_C(instruction) == 0) {
+                    code[i] = (instruction and Lua.MASK_NOT_OP) or (Lua.OP_CALL shl Lua.POS_OP)
+                }
+            }
+            p.p?.let { pending.addAll(it) }
+        }
+    }
+
+    /** Who called the host function that is running now. */
+    sealed interface Caller {
+        /** No Lua function on the stack: the host called the function directly (e.g. as a callback). */
+        data object Host : Caller
+
+        /** The innermost Lua function on the stack belongs to [runtime]. */
+        data class Script(val runtime: LuaRuntime) : Caller
+
+        /** A Lua function whose owner is unknown (must not happen; treated as "deny"). */
+        data object Unknown : Caller
+
+        /** Not called directly by Lua code: a metamethod or a library function in between (denied for gated functions). */
+        data object Indirect : Caller
+    }
+
+    /**
+     * The direct Lua caller of the running host function [isTarget] (the function itself, or a wrapper of it): the
+     * owner of the Lua frame whose `CALL` (or `pcall(f, ...)`) invokes it ([SandboxHook.directCall]). Frames are
+     * tracked by the principal's hook, which every extension's hook forwards to, so this works across extensions.
+     */
+    fun caller(isTarget: (LuaValue) -> Boolean): Caller {
+        val hook = activeHook ?: return Caller.Host
+        val closure = when (val call = hook.directCall(isTarget)) {
+            SandboxHook.Call.FromHost -> return Caller.Host
+            SandboxHook.Call.Indirect -> return Caller.Indirect
+            is SandboxHook.Call.Direct -> call.closure
+        }
+        val globals = owners[closure.p]?.get() ?: return Caller.Unknown
+        val runtime = (globals.debuglib as? SandboxHook)?.runtime ?: return Caller.Unknown
+        return Caller.Script(runtime)
     }
 }
 
@@ -56,6 +133,10 @@ class LuaRuntime(
 ) {
     private val hook = SandboxHook(limits)
     val globals: Globals = LuaSandbox.createGlobals(hook, limits, print)
+
+    init {
+        hook.runtime = this
+    }
 
     /** The object (extension) this runtime belongs to; read through [LuaExecution.principal]. */
     var owner: Any? = null
