@@ -107,7 +107,7 @@ class KilnClientImpl(
 
     /** One connection's configuration-phase state. */
     private inner class Session(val listener: ClientConfigurationPacketListenerImpl, val server: String) : ExtensionHandshake.Io {
-        val handshake = ExtensionHandshake(this)
+        val handshake = ExtensionHandshake(this, minProgressMillis = MIN_PROGRESS_MILLIS)
         var manifestAt = 0L
         var reported = false
 
@@ -458,6 +458,9 @@ class KilnClientImpl(
     companion object {
         /** Server-side limit for manifest -> `ExtensionRequest`, i.e. the consent screen (`docs/lua-extensions.md`). */
         const val CONSENT_TIMEOUT_MILLIS = 300_000L
+
+        /** The loading screen stays this long before a resource reload covers it (see ExtensionHandshake). */
+        const val MIN_PROGRESS_MILLIS = 1_500L
 
         /**
          * Key for consent and keybind persistence: the address as entered in the server list (lowercase). In the

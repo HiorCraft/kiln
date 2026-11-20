@@ -23,8 +23,15 @@ class ExtensionHandshake(
     private val io: Io,
     /** All packages together, unpacked (held in memory); a server sending more fails the handshake. */
     private val maxTotalUnpackedBytes: Long = ProtocolLimits.MAX_TOTAL_UNPACKED_BYTES,
+    private val clock: () -> Long = System::currentTimeMillis,
+    /**
+     * The resource reload covers the screen with Minecraft's loading overlay: it starts only after the loading
+     * screen was shown this long, so the player sees what is downloaded and checked even when it is fast.
+     */
+    private val minProgressMillis: Long = 0,
 ) {
     private var unpackedBytes = 0L
+    private var progressShownAt = 0L
 
     interface Io {
         fun send(message: ServerboundMessage)
@@ -157,6 +164,7 @@ class ExtensionHandshake(
             }
         }
         phase = Phase.DOWNLOADING
+        progressShownAt = clock()
         io.showProgress()
         io.send(ExtensionRequest(missing))
         items.firstOrNull { it.status == Status.QUEUED }?.status = Status.DOWNLOADING
@@ -214,6 +222,8 @@ class ExtensionHandshake(
             for (item in items) item.pkg?.assets?.let(assets::putAll)
             if (assets.isEmpty() && !io.resourcesMounted()) {
                 resourcesReady = true
+            } else if (clock() - progressShownAt < minProgressMillis) {
+                return
             } else {
                 phase = Phase.RELOADING
                 io.reloadResources(assets) { error ->

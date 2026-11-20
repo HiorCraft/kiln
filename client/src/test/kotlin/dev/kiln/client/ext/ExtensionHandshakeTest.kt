@@ -371,6 +371,22 @@ class ExtensionHandshakeTest {
     }
 
     @Test
+    fun `the loading screen stays visible for a moment before the resource reload covers it`() {
+        val r = resourceZip("r")
+        val io = FakeIo(trusted = true, cache = mutableMapOf("r" to r))
+        var now = 1_000L
+        val h = ExtensionHandshake(io, clock = { now }, minProgressMillis = 1_500)
+        h.onWelcome(PROTOCOL_VERSION)
+        h.onManifest(ExtensionManifest(listOf(resourceInfo("r", r))))
+        runToEnd(h)
+        assertTrue(io.events.none { it.startsWith("reload") }, io.events.toString())
+        assertEquals(Phase.LOADING, h.phase)
+        now += 1_500
+        runToEnd(h)
+        assertTrue("reload:[r/models/item/a.json]" in io.events, io.events.toString())
+    }
+
+    @Test
     fun `reload error fails the handshake`() {
         val r = resourceZip("r")
         val io = FakeIo(trusted = true, cache = mutableMapOf("r" to r))
