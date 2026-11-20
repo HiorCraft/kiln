@@ -70,6 +70,7 @@ class KilnPlugin : JavaPlugin(), Listener {
             helloMillis = config.getLong("hello-timeout-seconds", 10).coerceIn(1, 120) * 1_000,
             consentMillis = config.getLong("consent-timeout-seconds", 300).coerceIn(10, 3_600) * 1_000,
             extensionsMillis = config.getLong("extensions-timeout-seconds", 60).coerceIn(5, 600) * 1_000,
+            resourceReloadMillis = config.getLong("resource-reload-timeout-seconds", 120).coerceIn(10, 900) * 1_000,
         )
 
         sendThrottle = SendThrottle.kibPerSecond(config.getLong("extension-send-rate-kib-per-second", 0))

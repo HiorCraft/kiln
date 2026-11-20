@@ -570,7 +570,12 @@ verlangt es). Der Zustimmungs-Screen zeigt „Ressourcen: Modelle, Texturen, Sou
 In-Memory-Resourcepack `kiln:server` ein (oberstes, festes, erforderliches Pack; nur im Client-Resourcepack-Repository)
 und lädt die Ressourcen neu (Phase `RELOADING`, „Ressourcen werden geladen…“). Erst danach `ExtensionsReady(true)`;
 ein Fehler beim Reload → `ExtensionsReady(false, "Ressourcen konnten nicht geladen werden: …")`. Beim Disconnect wird das
-Pack entfernt und erneut geladen. Ohne Assets entfällt der Reload.
+Pack entfernt und erneut geladen. Ohne Assets entfällt der Reload. Schlägt der Reload fehl (z. B. Atlas zu groß), entfernt der Client das
+Extension-Pack, lädt ohne es neu (die eigenen Resourcepacks des Spielers bleiben ausgewählt) und meldet
+`ExtensionsReady(false, …)`. Der Server gibt für den Reload zusätzlich `resource-reload-timeout-seconds` (120 s) auf das
+Download-Zeitlimit, sobald ein Paket Assets hat. Alle Pakete zusammen dürfen entpackt höchstens 256 MiB groß sein
+(`MAX_TOTAL_UNPACKED_BYTES`, Server beim Registrieren, Client beim Prüfen); PNGs unter `assets/` prüft auch der Client
+vor dem Dekodieren auf ≤ 4096×4096.
 
 **Nutzung:** Modelle über Item-Definitionen (`assets/<id>/items/<name>.json`) und die Komponente `item_model`; Sounds
 über `sounds.json` (`Sound.sound(Key.key(id, name), …)`); Schriften über `font/<name>.json`

@@ -122,6 +122,11 @@ data class HandshakeTimeouts(
     val consentMillis: Long = 300_000,
     /** `ExtensionRequest` -> `ExtensionsReady`: download, verification and loading. */
     val extensionsMillis: Long = 60_000,
+    /**
+     * Added to [extensionsMillis] when a package has a resource-pack tree: the client reloads its resources (all
+     * models, textures, sounds) before it reports `ExtensionsReady`, which takes long on slow or heavily modded clients.
+     */
+    val resourceReloadMillis: Long = 120_000,
     /** Granularity for noticing a closed connection while waiting. */
     val pollMillis: Long = 250,
 )
@@ -192,7 +197,9 @@ class ConfigurationHandshake(
         val requested = request.ids.toSet()
         val toSend = packages.filter { it.id in requested }
         // the throttle's own transfer time is added, so a low rate cannot cause the download timeout by itself
-        val downloadMillis = throttle.downloadTimeoutMillis(timeouts.extensionsMillis, toSend.sumOf { it.zip.size.toLong() })
+        // a resource reload follows on the client whenever any package (cached or not) has assets
+        val reloadMillis = if (packages.any { it.hasAssets }) timeouts.resourceReloadMillis else 0L
+        val downloadMillis = throttle.downloadTimeoutMillis(timeouts.extensionsMillis, toSend.sumOf { it.zip.size.toLong() }) + reloadMillis
         val start = clock()
         val deadline = start + downloadMillis
         var sentBytes = 0L

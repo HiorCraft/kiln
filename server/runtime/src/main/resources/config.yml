@@ -13,6 +13,9 @@ consent-timeout-seconds: 300
 # Configuration phase: time for downloading and loading all Lua extensions after consent (ExtensionRequest ->
 # ExtensionsReady) before the player is disconnected.
 extensions-timeout-seconds: 60
+# Added to extensions-timeout-seconds when an extension has resources (assets/): the client reloads its
+# resources (models, textures, sounds) before it reports that it is ready.
+resource-reload-timeout-seconds: 120
 # Configuration phase: bandwidth limit per player for streaming Lua extension packages, in KiB/s (0 = unlimited).
 # Chunks (512 KiB) are spread over time on the player's handshake thread, never on the server thread. The time the
 # limit itself needs (requested bytes / rate) is added to extensions-timeout-seconds for that player.

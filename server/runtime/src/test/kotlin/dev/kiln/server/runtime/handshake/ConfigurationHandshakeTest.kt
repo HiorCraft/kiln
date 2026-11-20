@@ -23,7 +23,7 @@ import java.io.ByteArrayOutputStream
 import kotlin.random.Random
 
 class ConfigurationHandshakeTest {
-    private val timeouts = HandshakeTimeouts(helloMillis = 150, channelMillis = 150, consentMillis = 600, extensionsMillis = 300, pollMillis = 10)
+    private val timeouts = HandshakeTimeouts(helloMillis = 150, channelMillis = 150, consentMillis = 600, extensionsMillis = 300, resourceReloadMillis = 600, pollMillis = 10)
 
     private fun pkg(id: String, noise: Int = 0): ExtensionPackage {
         val png = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A) + Random(id.hashCode()).nextBytes(noise)
@@ -229,4 +229,33 @@ class ConfigurationHandshakeTest {
         repeat(100) { flood.reply(Hello(PROTOCOL_VERSION, emptyList())) }
         assertTrue((flood.run() as HandshakeResult.Kick).reason.contains("zu viele"))
     }
+
+    /** The client reloads its resources after loading packages with assets: that time comes on top of the download. */
+    @Test
+    fun `packages with assets get extra time for the resource reload`() {
+        val resources = ExtensionPackager.build("res", mapOf(
+            "extension.json" to """{"id":"res","version":"1","name":"res"}""".toByteArray(),
+            "assets/res/models/item/a.json" to "{}".toByteArray(),
+        ))
+        fun slowClient(): FakeClient {
+            lateinit var client: FakeClient
+            client = FakeClient(ready = null, onManifest = { manifest ->
+                // download done at once, then a resource reload longer than extensionsMillis
+                Thread {
+                    Thread.sleep(timeouts.extensionsMillis + 200)
+                    client.reply(ExtensionsReady(true))
+                }.start()
+                ExtensionRequest(manifest.extensions.map { it.id })
+            })
+            return client
+        }
+        val withAssets = slowClient()
+        withAssets.reply(Hello(PROTOCOL_VERSION, emptyList()))
+        assertEquals(HandshakeResult.Success, withAssets.run(listOf(resources)))
+
+        val withoutAssets = slowClient()
+        withoutAssets.reply(Hello(PROTOCOL_VERSION, emptyList()))
+        assertEquals(KickMessages.TIMEOUT, (withoutAssets.run(listOf(small)) as HandshakeResult.Kick).reason)
+    }
+
 }
