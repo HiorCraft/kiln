@@ -79,7 +79,7 @@ class KilnImpl(private val plugin: KilnPlugin) : Kiln, ExtensionMessenger {
     override val creativeTabs: CreativeTabRegistry = CreativeTabRegistry(plugin.logger, extensionRegistry::impl, ::scheduleCreativeBroadcast)
     private var creativeDirty = false
 
-    override val furniture: FurnitureManager = FurnitureManager(plugin.logger, extensionRegistry::impl) { player, message ->
+    override val furniture: FurnitureManager = FurnitureManager(plugin, plugin.logger, extensionRegistry::impl) { player, message ->
         session(player)?.let { send(it, message as ClientboundMessage) }
     }
 

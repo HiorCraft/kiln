@@ -31,6 +31,7 @@ import org.bukkit.event.block.Action
 import org.bukkit.event.entity.CreatureSpawnEvent
 import org.bukkit.event.entity.EntityDismountEvent
 import org.bukkit.event.player.PlayerInteractEntityEvent
+import org.bukkit.event.player.PlayerInteractAtEntityEvent
 import org.bukkit.event.player.PlayerInteractEvent
 import org.bukkit.event.world.ChunkLoadEvent
 import org.bukkit.event.world.ChunkUnloadEvent
@@ -50,6 +51,7 @@ import java.util.logging.Logger
  * model and a [KilnInteraction] per hit box.
  */
 class FurnitureManager(
+    private val plugin: Plugin,
     private val logger: Logger,
     extensions: (String) -> ExtensionImpl?,
     /** Sends a Kiln message to a player with a session (entity traits). */
@@ -58,7 +60,13 @@ class FurnitureManager(
     private val types = CustomItemCatalog<FurnitureTypeImpl> { id -> extensions(id)?.let { ContentExtension(it.plugin.name, it.pkg.files.toSet()) } }
     private val live = HashMap<UUID, LiveFurniture>()
     private val byEntity = HashMap<UUID, LiveFurniture>()
-    private val seats = HashSet<UUID>()
+    private val seats = HashMap<UUID, LiveFurniture>()
+
+    /** Seat entity -> index in the type's seats (occupancy). */
+    private val seatIndex = HashMap<UUID, Int>()
+
+    /** Last clicked point per player (interact-at comes right before the plain interact). */
+    private val lastClick = HashMap<UUID, Pair<Long, Location>>()
 
     // ---- registration -------------------------------------------------------------------------------------
 
@@ -88,7 +96,7 @@ class FurnitureManager(
     /** Removes every furniture entity (plugin disable); the chunk data stays. */
     fun despawnAll() {
         live.values.toList().forEach { despawn(it) }
-        seats.mapNotNull(Bukkit::getEntity).forEach { it.remove() }
+        seats.keys.mapNotNull(Bukkit::getEntity).forEach { it.remove() }
         seats.clear()
     }
 
@@ -174,15 +182,45 @@ class FurnitureManager(
         else chunk.persistentDataContainer.set(CHUNK_KEY, PersistentDataType.STRING, FurnitureStore.encode(list))
     }
 
-    internal fun seat(furniture: LiveFurniture, player: Player, offset: Vector) {
+    /** [offset].y is the height of the sitting surface above the origin; the rider's hips end up there. */
+    internal fun seat(furniture: LiveFurniture, player: Player, offset: Vector, index: Int? = null): Boolean {
+        if (player.isInsideVehicle) return false
         val pos = FurnitureGeometry.rotate(Vec(offset.x, offset.y, offset.z), furniture.stored.yaw)
         val at = furniture.location.clone().add(pos.x, pos.y, pos.z)
         val seat = at.world.spawn(at, ItemDisplay::class.java) { it.isPersistent = false }
-        seats += seat.uniqueId
+        seats[seat.uniqueId] = furniture
+        if (index != null) seatIndex[seat.uniqueId] = index
         if (!seat.addPassenger(player)) {
             seats -= seat.uniqueId
+            seatIndex -= seat.uniqueId
             seat.remove()
+            return false
         }
+        return true
+    }
+
+    internal fun sit(furniture: LiveFurniture, player: Player, near: Location?): Boolean {
+        val offsets = furniture.type.definition.seats
+        if (offsets.isEmpty()) return false
+        val origin = Vec(furniture.stored.x, furniture.stored.y, furniture.stored.z)
+        val positions = offsets.map { origin + FurnitureGeometry.rotate(Vec(it.x, it.y, it.z), furniture.stored.yaw) }
+        val occupied = seats.filter { it.value === furniture }.keys.mapNotNull { seatIndex[it] }.toSet()
+        val point = (near ?: player.location).let { Vec(it.x, it.y, it.z) }
+        val index = FurnitureGeometry.nearestFreeSeat(positions, occupied, point) ?: return false
+        return seat(furniture, player, offsets[index], index)
+    }
+
+    /**
+     * Where a rider stands up: on top of the furniture's hit boxes under the seat (vanilla would put them at the
+     * seat's height, inside a solid box, from where they fall into the floor).
+     */
+    private fun standUpLocation(furniture: LiveFurniture, seat: Location, player: Player): Location {
+        val boxes = FurnitureGeometry.boxes(
+            Vec(furniture.stored.x, furniture.stored.y, furniture.stored.z), furniture.stored.yaw,
+            furniture.type.definition.hitboxes.map { Hitbox(it.width, it.height, Vec(it.offset.x, it.offset.y, it.offset.z), it.solid) },
+        ).filterIndexed { i, _ -> furniture.type.definition.hitboxes[i].solid }
+        val top = boxes.filter { seat.x in it.minX..it.maxX && seat.z in it.minZ..it.maxZ }.maxOfOrNull { it.maxY }
+        return Location(seat.world, seat.x, maxOf(top ?: seat.y, furniture.stored.y), seat.z, player.location.yaw, player.location.pitch)
     }
 
     // ---- events -------------------------------------------------------------------------------------------
@@ -233,13 +271,25 @@ class FurnitureManager(
         onAttacked(furniture, event.player)
     }
 
+    /**
+     * Right click on a part. The client sends "interact at" (with the clicked point) and then a plain "interact";
+     * both arrive as [PlayerInteractEntityEvent]: the first only remembers the point, the second acts once.
+     */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     fun onInteract(event: PlayerInteractEntityEvent) {
         if (event.hand != EquipmentSlot.HAND) return
         val furniture = byEntity[event.rightClicked.uniqueId] ?: return
         event.isCancelled = true
-        val handler = furniture.type.definition.onInteract ?: return
-        hook(furniture, "onInteract") { handler(event.player, furniture) }
+        if (event is PlayerInteractAtEntityEvent) {
+            val point = event.rightClicked.location.clone().add(event.clickedPosition)
+            lastClick[event.player.uniqueId] = event.player.world.gameTime to point
+            return
+        }
+        val click = lastClick.remove(event.player.uniqueId)?.takeIf { it.first == event.player.world.gameTime }?.second
+        val handler = furniture.type.definition.onInteract
+        hook(furniture, "onInteract") {
+            if (handler != null) handler(event.player, furniture) else furniture.sit(event.player, click ?: event.rightClicked.location)
+        }
     }
 
     @EventHandler
@@ -257,7 +307,15 @@ class FurnitureManager(
     @EventHandler
     fun onDismount(event: EntityDismountEvent) {
         val seat = event.dismounted
-        if (seats.remove(seat.uniqueId)) seat.remove()
+        val furniture = seats.remove(seat.uniqueId) ?: return
+        seatIndex -= seat.uniqueId
+        val player = event.entity as? Player
+        val seatLocation = seat.location
+        // after vanilla's dismount handling: remove the seat, stand the player up on the furniture
+        Bukkit.getScheduler().runTask(plugin, Runnable {
+            seat.remove()
+            if (player != null && player.isOnline && player.vehicle == null) player.teleport(standUpLocation(furniture, seatLocation, player))
+        })
     }
 
     private inline fun hook(furniture: LiveFurniture, what: String, block: () -> Unit) {
@@ -303,5 +361,9 @@ class LiveFurniture(
 
     override fun remove(dropItem: Boolean) = manager.remove(this, dropItem)
 
-    override fun seat(player: Player, offset: Vector) = manager.seat(this, player, offset)
+    override fun seat(player: Player, offset: Vector) {
+        manager.seat(this, player, offset)
+    }
+
+    override fun sit(player: Player, near: Location?): Boolean = manager.sit(this, player, near)
 }

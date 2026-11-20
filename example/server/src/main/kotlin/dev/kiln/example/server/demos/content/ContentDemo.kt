@@ -57,7 +57,9 @@ class ContentDemo(private val plugin: JavaPlugin) : TabExecutor {
         kiln.furniture.register(plugin, extension.key("chair")) {
             item = chairItem
             hitbox(width = 0.9, height = 0.6, solid = true)
-            onInteract { player, furniture -> furniture.seat(player, Vector(0.0, 0.35, 0.0)) }
+            // backrest (2/16 deep, at the back = north): interaction boxes have a square base, so four slim columns
+            for (x in listOf(-0.33, -0.11, 0.11, 0.33)) hitbox(width = 0.22, height = 0.775, offset = Vector(x, 0.6, -0.375), solid = true)
+            seat(Vector(0.0, 0.625, 0.0)) // seat surface 10/16
         }
         kiln.furniture.register(plugin, extension.key("table")) {
             item = tableItem
@@ -67,7 +69,8 @@ class ContentDemo(private val plugin: JavaPlugin) : TabExecutor {
             item = benchItem
             hitbox(width = 1.0, height = 0.5, offset = Vector(-0.5, 0.0, 0.0), solid = true)
             hitbox(width = 1.0, height = 0.5, offset = Vector(0.5, 0.0, 0.0), solid = true)
-            onInteract { player, furniture -> furniture.seat(player, Vector(0.0, 0.25, 0.0)) }
+            // three places; a right click sits on the free one closest to the clicked point
+            for (x in listOf(-0.67, 0.0, 0.67)) seat(Vector(x, 0.5, 0.0)) // seat surface 8/16
         }
         kiln.creativeTabs.register(plugin, extension.key("inhalte")) {
             title = Component.text("Kiln Inhalte", NamedTextColor.RED)

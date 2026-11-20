@@ -54,8 +54,17 @@ public interface Furniture {
     /** Removes it from the world (and its chunk); [dropItem] drops the type's item. */
     public fun remove(dropItem: Boolean = false)
 
-    /** Lets [player] sit at [offset] (rotated with the furniture) until they dismount. */
+    /**
+     * Lets [player] sit until they dismount; [offset] is the seat position relative to the origin (rotated with the
+     * furniture), its `y` the height of the sitting surface. Dismounting stands the player up on the furniture.
+     */
     public fun seat(player: Player, offset: Vector)
+
+    /**
+     * Seats [player] on the free seat ([FurnitureBuilder.seat]) closest to [near] (default: the player); `false` if
+     * every seat is taken or the type has none.
+     */
+    public fun sit(player: Player, near: Location? = null): Boolean
 }
 
 /** Definition of a [FurnitureType]. */
@@ -70,6 +79,10 @@ public class FurnitureBuilder {
     public var modelHeight: Double = 0.5
 
     internal val boxes = ArrayList<FurnitureHitbox>()
+    internal val seatOffsets = ArrayList<Vector>()
+
+    /** Seats (see [seat]); a right click sits on the free one closest to the clicked point unless [onInteract] is set. */
+    public val seats: List<Vector> get() = seatOffsets
 
     public val hitboxes: List<FurnitureHitbox> get() = boxes
 
@@ -86,6 +99,15 @@ public class FurnitureBuilder {
         require(width in 0.05..16.0 && height in 0.05..16.0) { "hit box size must be 0.05..16 blocks" }
         require(maxOf(kotlin.math.abs(offset.x), kotlin.math.abs(offset.y), kotlin.math.abs(offset.z)) <= 16.0) { "hit box offset must be within 16 blocks" }
         boxes += FurnitureHitbox(width, height, offset.clone(), solid)
+    }
+
+    /**
+     * A seat at [offset] from the origin (front = south, rotated with the furniture); `y` is the height of the
+     * sitting surface. One player per seat.
+     */
+    public fun seat(offset: Vector) {
+        require(maxOf(kotlin.math.abs(offset.x), kotlin.math.abs(offset.y), kotlin.math.abs(offset.z)) <= 16.0) { "seat offset must be within 16 blocks" }
+        seatOffsets += offset.clone()
     }
 
     public fun onInteract(handler: (player: Player, furniture: Furniture) -> Unit) {

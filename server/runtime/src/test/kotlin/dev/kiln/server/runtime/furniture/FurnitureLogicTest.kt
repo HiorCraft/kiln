@@ -55,4 +55,13 @@ class FurnitureLogicTest {
         assertEquals(1, decoded.entries.size)
         assertEquals(3, decoded.invalid)
     }
+
+    @Test
+    fun nearestFreeSeatIsChosen() {
+        val seats = listOf(Vec(-0.67, 0.5, 0.0), Vec(0.0, 0.5, 0.0), Vec(0.67, 0.5, 0.0))
+        assertEquals(2, FurnitureGeometry.nearestFreeSeat(seats, emptySet(), Vec(0.9, 0.4, 0.3)))
+        assertEquals(1, FurnitureGeometry.nearestFreeSeat(seats, setOf(2), Vec(0.9, 0.4, 0.3)))
+        assertEquals(null, FurnitureGeometry.nearestFreeSeat(seats, setOf(0, 1, 2), Vec(0.0, 0.0, 0.0)))
+        assertEquals(null, FurnitureGeometry.nearestFreeSeat(emptyList(), emptySet(), Vec(0.0, 0.0, 0.0)))
+    }
 }

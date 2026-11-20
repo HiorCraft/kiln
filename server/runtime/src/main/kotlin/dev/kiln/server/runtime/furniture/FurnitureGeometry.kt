@@ -53,6 +53,13 @@ object FurnitureGeometry {
         Box(feet.x - half, feet.y, feet.z - half, feet.x + half, feet.y + box.height, feet.z + half)
     }
 
+    /** Index of the unoccupied seat (world positions [seats]) closest to [point], or `null` if all are taken. */
+    fun nearestFreeSeat(seats: List<Vec>, occupied: Set<Int>, point: Vec): Int? =
+        seats.indices.filter { it !in occupied }.minByOrNull {
+            val s = seats[it]
+            (s.x - point.x) * (s.x - point.x) + (s.y - point.y) * (s.y - point.y) + (s.z - point.z) * (s.z - point.z)
+        }
+
     /** `true` if a solid block cell intersects any box (touching faces is fine). */
     fun blocked(boxes: List<Box>, isSolidAt: (x: Int, y: Int, z: Int) -> Boolean): Boolean {
         val eps = 1e-6
