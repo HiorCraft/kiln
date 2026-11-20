@@ -35,6 +35,9 @@ class KilnGradlePluginTest {
         assertTrue(kiln.contains("load: BEFORE"), yaml)
         assertTrue(kiln.contains("required: true"), yaml)
         assertTrue(kiln.contains("join-classpath: true"), yaml)
+        // bootstrappers (custom enchantments via KilnBootstrap) need the Kiln API as well
+        val bootstrap = yaml.substringAfter("bootstrap:", "")
+        assertTrue(bootstrap.contains("Kiln:") && bootstrap.contains("join-classpath: true"), yaml)
     }
 
     @Test

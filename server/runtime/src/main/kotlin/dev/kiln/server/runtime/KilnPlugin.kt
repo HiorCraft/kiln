@@ -5,6 +5,9 @@ import dev.kiln.protocol.CHANNEL
 import dev.kiln.protocol.PROTOCOL_VERSION
 import dev.kiln.server.runtime.handshake.HandshakeManager
 import dev.kiln.server.runtime.item.CustomItemListener
+import dev.kiln.server.runtime.enchantment.EnchantmentHooks
+import dev.kiln.server.api.enchantment.KilnBootstrap
+import org.bukkit.event.server.ServerLoadEvent
 import dev.kiln.server.runtime.handshake.HandshakeTimeouts
 import dev.kiln.server.runtime.handshake.KickMessages
 import dev.kiln.server.runtime.handshake.SendThrottle
@@ -90,9 +93,11 @@ class KilnPlugin : JavaPlugin(), Listener {
         server.pluginManager.registerEvents(this, this)
         server.pluginManager.registerEvents(handshakes, this)
         server.pluginManager.registerEvents(CustomItemListener(bridge.items), this)
+        server.pluginManager.registerEvents(bridge.enchantments, this)
         // fallback for clients whose channel registration did not produce a PlayerRegisterChannelEvent
         server.scheduler.runTaskTimer(this, Runnable { bridge.flushAll() }, 20L, 20L)
         server.scheduler.runTaskTimer(this, Runnable { handshakes.sweep() }, 20L * 60, 20L * 60)
+        server.scheduler.runTaskTimer(this, Runnable { bridge.enchantments.tick() }, 20L, 20L)
         // dependencies can only be checked once every plugin had the chance to register its extensions
         server.scheduler.runTask(this, Runnable { bridge.extensionRegistry.logProblems() })
 
@@ -136,6 +141,13 @@ class KilnPlugin : JavaPlugin(), Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     fun onQuit(event: PlayerQuitEvent) {
         bridge.onQuit(event.player)
+    }
+
+    /** After every plugin enabled: bootstrap enchantments without an extension of the same namespace. */
+    @EventHandler
+    fun onServerLoad(event: ServerLoadEvent) {
+        val ids = bridge.extensions().map { it.id }.toSet()
+        EnchantmentHooks.warnings(KilnBootstrap.registered, ids).forEach(logger::warning)
     }
 
     @EventHandler(priority = EventPriority.MONITOR)

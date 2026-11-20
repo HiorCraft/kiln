@@ -3,6 +3,7 @@ package dev.kiln.server.api
 import dev.kiln.server.api.extension.Extension
 import dev.kiln.server.api.extension.ExtensionSource
 import dev.kiln.server.api.item.CustomItems
+import dev.kiln.server.api.enchantment.CustomEnchantments
 import dev.kiln.server.api.keybind.Keybind
 import dev.kiln.server.api.keybind.KeybindBuilder
 import dev.kiln.server.api.keybind.KeyCode
@@ -112,6 +113,12 @@ public interface Kiln {
 
     /** Custom items backed by data components and extension resources. */
     public val items: CustomItems
+
+    /**
+     * Logic for (custom) enchantments; the enchantments themselves are registered in a bootstrapper with
+     * [dev.kiln.server.api.enchantment.KilnBootstrap].
+     */
+    public val enchantments: CustomEnchantments
 
     public companion object {
         /** The registered implementation; throws if the Kiln plugin is not loaded. */

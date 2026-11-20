@@ -51,6 +51,12 @@ class KilnGradlePlugin : Plugin<Project> {
                 required = true
                 joinClasspath = true
             }
+            // bootstrappers use the Kiln API too (e.g. KilnBootstrap for custom enchantments)
+            bootstrapDependencies.register("Kiln") {
+                load = PaperPluginDescription.RelativeLoadOrder.BEFORE
+                required = true
+                joinClasspath = true
+            }
         }
 
         val kilnServer = artifactConfiguration(project, "kilnServer", { kiln.serverJar.isPresent }) {
