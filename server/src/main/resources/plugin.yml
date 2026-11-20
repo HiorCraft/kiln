@@ -1,6 +1,0 @@
-name: Kiln
-version: "${version}"
-main: dev.kiln.server.KilnPlugin
-api-version: "26.3"
-load: STARTUP
-description: Server runtime of kiln (server-described GUIs, keybinds and Lua extensions for Fabric clients)

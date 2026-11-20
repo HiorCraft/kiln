@@ -1,7 +1,9 @@
+import net.minecrell.pluginyml.bukkit.BukkitPluginDescription
+
 plugins {
-    id("kiln.kotlin")
+    id("kiln.paper-plugin")
+    id("kiln.nms")
     id("kiln.test")
-    id("kiln.shadow")
 }
 
 base {
@@ -9,19 +11,15 @@ base {
 }
 
 dependencies {
-    compileOnly(libs.paper.api)
     // bundled into the plugin jar
     implementation(project(":protocol"))
     implementation(project(":server-api"))
     implementation(libs.kotlin.stdlib)
-
-    // pure logic tests (layout, conversion, validation); Paper types only through the API jar, no running server
-    testImplementation(libs.paper.api)
 }
 
-tasks.processResources {
-    val props = mapOf("version" to project.version)
-    inputs.properties(props)
-    filesMatching("plugin.yml") { expand(props) }
+paper {
+    name = "Kiln"
+    main = "dev.kiln.server.KilnPlugin"
+    load = BukkitPluginDescription.PluginLoadOrder.STARTUP
+    description = "Server runtime of kiln (server-described GUIs, keybinds and Lua extensions for Fabric clients)"
 }
-
