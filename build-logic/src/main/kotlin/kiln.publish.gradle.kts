@@ -20,3 +20,15 @@ publishing {
         }
     }
 }
+
+// one publication per module, artifactId = archivesName (kiln-protocol, kiln-server, ...); the shadow jar when present
+afterEvaluate {
+    publishing {
+        publications {
+            create<MavenPublication>("maven") {
+                from(components.findByName("shadow") ?: components["java"])
+                artifactId = the<BasePluginExtension>().archivesName.get()
+            }
+        }
+    }
+}

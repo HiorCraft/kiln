@@ -1,4 +1,5 @@
 plugins {
+    id("kiln.publish")
     id("kiln.library")
     id("kiln.test")
 }

@@ -98,6 +98,8 @@ ext.channel<HelloMessage>("hello") { player, msg -> send(player, HelloMessage("H
 | `server` | Paper plugin `Kiln` | `kiln-server-<v>.jar` (shades `protocol`, `server-api`, Kotlin stdlib) |
 | `client` | Fabric mod `kiln` | `kiln-client-<v>.jar` (`protocol` and LuaJ as nested jars) |
 | `example-server` | Paper plugin `KilnExample` | demos and Lua extensions, see below |
+| `build-logic` | included build | convention plugins (`kiln.kotlin`, `kiln.test`, `kiln.library`, `kiln.shadow`, `kiln.paper-plugin`, `kiln.nms`, `kiln.publish`) |
+| `gradle-plugin` | Gradle plugin `dev.kiln` | `paper-plugin.yml` with Kiln dependency, `runServer`, `runClient` for plugins using Kiln |
 
 ## Getting started
 
@@ -106,7 +108,9 @@ Requirements: Java 25. Gradle downloads everything else.
 ```sh
 ./gradlew build                     # all modules, including tests
 ./gradlew :example-server:runServer # Paper 26.3 with Kiln and the demos (run/server)
-./gradlew :client:runClient         # Minecraft 26.3 with the Kiln runtime (client/run), offline user "Ammo"
+./gradlew :example-server:runClient # Minecraft 26.3 with the Kiln runtime (run/client), offline user "Ammo"
+./gradlew :client:runClient         # the same from the client module (client/run)
+./gradlew publishToMavenLocal; ./gradlew -p gradle-plugin publishToMavenLocal   # dev.kiln:* artifacts + plugin
 ```
 
 Connect the dev client to the server. On the first join you see the consent screen, then the loading screen, then
@@ -123,6 +127,30 @@ the world. Players need `kiln-client-<v>.jar`, Fabric API and Fabric Language Ko
 | `/warps` | V | warp tiles, search, favourites, teleport with cooldown |
 | `/bestenliste` | N | sortable leaderboard table and bar chart |
 | `/profil` | M | settings form with live preview and unsaved-changes dialog |
+
+## Using Kiln in your plugin
+
+Apply the Gradle plugin `dev.kiln` (published to `mavenLocal()` for now). It adds `paper-api`, `kiln-server-api`
+and the Kotlin stdlib as `compileOnly`, generates `paper-plugin.yml` with Kiln as required dependency
+(`load: BEFORE`, `join-classpath: true`) and provides `runServer` (Paper + Kiln + your plugin, `run/server`,
+offline mode) and `runClient` (Minecraft + Fabric + Kiln runtime, `run/client`).
+
+```kotlin
+// settings.gradle.kts
+pluginManagement { repositories { mavenLocal(); gradlePluginPortal() } }
+
+// build.gradle.kts
+plugins {
+    kotlin("jvm") version "2.4.21"
+    id("dev.kiln") version "0.1.0-SNAPSHOT"
+}
+
+paper { main = "com.example.MyPlugin" }
+kiln { clientUsername = "Dev" }   // optional: version, serverPort, serverJar, clientJar, runDirectory
+```
+
+Commands are registered with Paper's command API (`registerCommand` / `LifecycleEvents.COMMANDS`), since
+`paper-plugin.yml` has no `commands` section.
 
 ## Documentation
 

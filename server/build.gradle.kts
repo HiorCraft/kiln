@@ -1,6 +1,7 @@
 import net.minecrell.pluginyml.bukkit.BukkitPluginDescription
 
 plugins {
+    id("kiln.publish")
     id("kiln.paper-plugin")
     id("kiln.nms")
     id("kiln.test")

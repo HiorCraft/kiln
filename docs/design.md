@@ -20,8 +20,10 @@ Java 25, Kotlin. Keine surf-Abhängigkeiten. Basis-Package `dev.kiln`.
 | `server` | Paper-Plugin | Implementierung von `server-api`, Kanal, Handshake, Sessions |
 | `client` | Fabric-Mod | Runtime: empfängt Payloads, rendert Screens, Keybinds, sendet Events |
 | `example-server` | Paper-Plugin | Demo gegen `server-api`: Factory-GUI, Keybinds |
+| `build-logic` | Included Build | Convention-Plugins (`kiln.kotlin`, `kiln.test`, `kiln.library`, `kiln.shadow`, `kiln.paper-plugin`, `kiln.nms`, `kiln.publish`) |
+| `gradle-plugin` | Included Build, Plugin `dev.kiln` | für Kiln-Projekte: Abhängigkeiten, `paper-plugin.yml`, `runServer`, `runClient` |
 
-`server` bündelt `protocol` + `server-api` (+ Kotlin-Stdlib). `client` bündelt `protocol` + LuaJ per `include`. Das Example-Modul hängt nur an `server-api` (compileOnly).
+`server` bündelt `protocol` + `server-api` (+ Kotlin-Stdlib) und nutzt NMS über paperweight-userdev (Mojang-Namen, kein Reobf); `server` und `example-server` sind Paper-Plugins (`paper-plugin.yml`, generiert mit plugin-yml). `client` bündelt `protocol` + LuaJ per `include`. Das Example-Modul hängt nur an `server-api` (compileOnly).
 
 ## Protokoll
 
