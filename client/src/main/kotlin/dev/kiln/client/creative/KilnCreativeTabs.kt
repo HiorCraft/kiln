@@ -60,7 +60,19 @@ object KilnCreativeTabs {
 
     /** Title for Kiln tabs (`CreativeModeTabMixin`), else `null`. */
     @JvmStatic
-    fun title(tab: CreativeModeTab): Component? = slotOf(tab)?.let { Components.parse(it.title) }
+    fun title(tab: CreativeModeTab): Component? {
+        val index = tabs.indexOf(tab)
+        if (index < 0) return null
+        if (titleVersion != state.version) {
+            titles.clear()
+            titleVersion = state.version
+        }
+        return titles.getOrPut(index) { state.slot(index)?.let { Components.parse(it.title) } ?: Component.literal("Kiln") }
+            .takeIf { state.slot(index) != null }
+    }
+
+    private val titles = HashMap<Int, Component>()
+    private var titleVersion = -1L
 
     /** Icon for Kiln tabs (`CreativeModeTabMixin`), else `null`. */
     @JvmStatic

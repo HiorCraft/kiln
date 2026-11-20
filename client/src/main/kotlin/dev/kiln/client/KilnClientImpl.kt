@@ -222,6 +222,9 @@ class KilnClientImpl(
     fun onConfigurationStart(listener: ClientConfigurationPacketListenerImpl) {
         if (isConnected) {
             logger.debug("Reconfiguration: keeping the kiln session")
+            // a proxy may switch the backend here: its entity ids and creative content are not ours any more
+            KilnEntityTraits.CLIENT.clear()
+            KilnCreativeTabs.clear()
             return
         }
         resetConnection()

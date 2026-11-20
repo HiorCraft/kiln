@@ -18,10 +18,26 @@ object KilnPostEffect {
     var current: Identifier? = null
         private set
 
-    /** `true` while [request] checks an effect; resource-pack recovery must not run then. */
-    @Volatile
-    var probing: Boolean = false
-        private set
+    private val probingOnThisThread = ThreadLocal.withInitial { false }
+
+    /** `true` while this thread loads the server's effect; resource-pack recovery must not run then. */
+    val probing: Boolean get() = probingOnThisThread.get()
+
+    /** Called around every `ShaderManager.getPostChain` of the current effect (`ShaderManagerMixin`). */
+    fun beginLoad(id: Any?): Boolean {
+        if (id == null || id != current) return false
+        probingOnThisThread.set(true)
+        return true
+    }
+
+    /** End of a load started with [beginLoad]; a failed load (no chain) switches the effect off for good. */
+    fun endLoad(loaded: Boolean) {
+        probingOnThisThread.set(false)
+        if (!loaded) {
+            logger.warn("Post effect {} from the server stopped loading (resource reload?); switched off", current)
+            current = null
+        }
+    }
 
     /**
      * Switches to [id] (`null` = off) if [loads] confirms the effect compiles; otherwise turns any effect off.
@@ -33,13 +49,13 @@ object KilnPostEffect {
             return false
         }
         val ok = try {
-            probing = true
+            probingOnThisThread.set(true)
             loads(id)
         } catch (e: Exception) {
             logger.warn("Post effect {} failed to load", id, e)
             false
         } finally {
-            probing = false
+            probingOnThisThread.set(false)
         }
         if (!ok) logger.warn("Ignoring post effect {} from the server: it does not exist or does not compile", id)
         current = id.takeIf { ok }

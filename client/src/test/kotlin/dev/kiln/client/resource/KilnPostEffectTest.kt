@@ -42,4 +42,21 @@ class KilnPostEffectTest {
         assertFalse(KilnPostEffect.request(effect) { error("boom") })
         assertFalse(KilnPostEffect.probing)
     }
+
+    @Test
+    fun laterLoadFailureSwitchesTheEffectOff() {
+        KilnPostEffect.request(effect) { true }
+        assertTrue(KilnPostEffect.beginLoad(effect))
+        assertTrue(KilnPostEffect.probing)
+        KilnPostEffect.endLoad(loaded = false)
+        assertFalse(KilnPostEffect.probing)
+        assertNull(KilnPostEffect.current)
+    }
+
+    @Test
+    fun otherEffectsAreNotGuarded() {
+        KilnPostEffect.request(effect) { true }
+        assertFalse(KilnPostEffect.beginLoad(Identifier.fromNamespaceAndPath("minecraft", "creeper")))
+        assertFalse(KilnPostEffect.probing)
+    }
 }
