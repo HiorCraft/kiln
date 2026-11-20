@@ -11,6 +11,7 @@
     "OptionsAccessor",
     "OptionsMixin",
     "OptionsScreenMixin",
+    "PackRepositoryMixin",
     "PauseScreenMixin",
     "TextureManagerAccessor"
   ],

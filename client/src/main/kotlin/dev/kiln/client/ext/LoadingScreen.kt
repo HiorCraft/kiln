@@ -65,6 +65,7 @@ class LoadingScreen(
             Phase.FAILED -> "Fehler: " + (handshake.error ?: "unbekannt")
             Phase.DECLINED -> "Abgebrochen"
             Phase.LOADING -> "Erweiterungen werden gestartet…"
+            Phase.RELOADING -> "Ressourcen werden geladen…"
             else -> "Erweiterungen werden heruntergeladen…"
         }
         val statusColor = when (handshake.phase) {

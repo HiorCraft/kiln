@@ -38,6 +38,8 @@ class ExtensionHandshakeTest {
         }
         override fun unloadAll() { events += "unload" }
         override fun disconnect(reason: String) { events += "disconnect:$reason" }
+        var reloadDone: ((String?) -> Unit)? = null
+        override fun reloadResources(done: (error: String?) -> Unit) { events += "reload"; reloadDone = done }
         val mods = HashSet<String>()
         override fun isModLoaded(id: String) = id in mods
     }
@@ -330,5 +332,61 @@ class ExtensionHandshakeTest {
         // ... but may add new keys, and overwrite its own (en_us first, then the selected language)
         ExtensionNamespaces.checkTranslation("gui", "gui.shop_title", emptySet()) { it in language }
         ExtensionNamespaces.checkTranslation("shop", "shop.title", setOf("shop.title")) { true }
+    }
+
+    // ---- v6: resource reload before ExtensionsReady ------------------------------------------------------------
+
+    private fun resourceZip(id: String): ByteArray {
+        val out = ByteArrayOutputStream()
+        ZipOutputStream(out).use { z ->
+            z.putNextEntry(ZipEntry("extension.json"))
+            z.write("""{"id":"$id","version":"1","name":"$id","permissions":["resources"]}""".toByteArray())
+            z.putNextEntry(ZipEntry("assets/$id/models/item/a.json"))
+            z.write("{}".toByteArray())
+        }
+        return out.toByteArray()
+    }
+
+    private fun resourceInfo(id: String, data: ByteArray) = ExtensionInfo(id, "1", id, Sha256.of(data), data.size, listOf("resources"))
+
+    @Test
+    fun `reloads resources before ready`() {
+        val r = resourceZip("r")
+        val io = FakeIo(trusted = true, cache = mutableMapOf("a" to a, "r" to r))
+        val h = ExtensionHandshake(io)
+        h.onWelcome(PROTOCOL_VERSION)
+        h.onManifest(ExtensionManifest(listOf(info("a", a), resourceInfo("r", r))))
+        runToEnd(h)
+        assertEquals(Phase.RELOADING, h.phase)
+        assertFalse(io.sent.contains(ExtensionsReady(true)), "ready only after the reload")
+        assertEquals(listOf("load:a", "load:r", "reload"), io.events.filter { it.startsWith("load:") || it == "reload" })
+        io.reloadDone!!(null)
+        assertEquals(Phase.DONE, h.phase)
+        assertEquals(ExtensionsReady(true), io.sent.last())
+    }
+
+    @Test
+    fun `reload error fails the handshake`() {
+        val r = resourceZip("r")
+        val io = FakeIo(trusted = true, cache = mutableMapOf("r" to r))
+        val h = ExtensionHandshake(io)
+        h.onWelcome(PROTOCOL_VERSION)
+        h.onManifest(ExtensionManifest(listOf(resourceInfo("r", r))))
+        runToEnd(h)
+        io.reloadDone!!("boom")
+        assertEquals(Phase.FAILED, h.phase)
+        assertEquals(ExtensionsReady(false, "Ressourcen konnten nicht geladen werden: boom"), io.sent.last())
+        assertTrue("unload" in io.events)
+    }
+
+    @Test
+    fun `no assets skips the reload`() {
+        val io = FakeIo(trusted = true, cache = mutableMapOf("a" to a, "b" to b))
+        val h = ExtensionHandshake(io)
+        h.onWelcome(PROTOCOL_VERSION)
+        h.onManifest(manifest)
+        runToEnd(h)
+        assertEquals(Phase.DONE, h.phase)
+        assertFalse("reload" in io.events)
     }
 }

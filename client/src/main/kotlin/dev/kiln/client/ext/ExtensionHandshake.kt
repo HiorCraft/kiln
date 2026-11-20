@@ -46,9 +46,15 @@ class ExtensionHandshake(private val io: Io) {
 
         /** `true` if a Fabric mod with this id is installed (its namespace is off limits for extensions). */
         fun isModLoaded(id: String): Boolean = false
+
+        /**
+         * Mounts the `assets/` of the loaded packages as resource pack and reloads the game's resources; calls
+         * [done] on the client thread with `null` or a readable error. Only called when a package has assets.
+         */
+        fun reloadResources(done: (error: String?) -> Unit) = done(null)
     }
 
-    enum class Phase { WAIT_WELCOME, WAIT_MANIFEST, CONSENT, DOWNLOADING, LOADING, DONE, FAILED, DECLINED }
+    enum class Phase { WAIT_WELCOME, WAIT_MANIFEST, CONSENT, DOWNLOADING, LOADING, RELOADING, DONE, FAILED, DECLINED }
 
     enum class Status { QUEUED, CACHED, DOWNLOADING, VERIFYING, STARTING, DONE, FAILED }
 
@@ -206,9 +212,24 @@ class ExtensionHandshake(private val io: Io) {
             return
         }
         if (items.all { it.status == Status.DONE }) {
-            phase = Phase.DONE
-            io.send(ExtensionsReady(true))
+            if (items.none { it.pkg?.assets?.isNotEmpty() == true }) return ready()
+            // resource packs from the extensions: mounted and reloaded before the player enters the world
+            phase = Phase.RELOADING
+            io.reloadResources { error ->
+                if (phase != Phase.RELOADING) return@reloadResources
+                if (error == null) {
+                    ready()
+                } else {
+                    io.unloadAll()
+                    fail("Ressourcen konnten nicht geladen werden: $error")
+                }
+            }
         }
+    }
+
+    private fun ready() {
+        phase = Phase.DONE
+        io.send(ExtensionsReady(true))
     }
 
     /** Ids of the manifest entries that (transitively) depend on [id]. */

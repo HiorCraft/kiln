@@ -5,6 +5,7 @@ import dev.kiln.client.ext.ConsentScreen
 import dev.kiln.client.ext.ExtensionHandshake
 import dev.kiln.client.ext.ExtensionIcons
 import dev.kiln.client.ext.LoadingScreen
+import dev.kiln.client.resource.KilnPackSource
 import dev.kiln.client.ext.ExtensionManager
 import dev.kiln.client.ext.ExtensionPackage
 import dev.kiln.client.ext.TrustStore
@@ -139,6 +140,17 @@ class KilnClientImpl(
         override fun unloadAll() = extensions.unloadAll()
 
         override fun isModLoaded(id: String) = FabricLoader.getInstance().isModLoaded(id)
+
+        override fun reloadResources(done: (error: String?) -> Unit) {
+            val minecraft = Minecraft.getInstance()
+            KilnPackSource.set(extensions.assets)
+            logger.info("Reloading resources with {} extension asset file(s)", extensions.assets.size)
+            minecraft.reloadResourcePacks().whenComplete { _, error ->
+                minecraft.execute {
+                    if (session === this) done(error?.let { it.message ?: it.javaClass.simpleName })
+                }
+            }
+        }
 
         override fun disconnect(reason: String) {
             (listener as ClientCommonPacketListenerAccessor).`kiln$getConnection`().disconnect(Component.literal(reason))
@@ -299,6 +311,8 @@ class KilnClientImpl(
         (Minecraft.getInstance().gui.screen() as? KilnScreen)?.closeSilently = true
         ServerKeybinds.clear()
         extensions.unloadAll()
+        // the extensions' resource pack goes with them
+        if (KilnPackSource.clear()) Minecraft.getInstance().reloadResourcePacks()
         icons.clear()
         session = null
         inPlay = false
