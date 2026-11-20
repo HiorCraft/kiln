@@ -40,12 +40,6 @@ import org.bukkit.plugin.java.JavaPlugin
 import java.util.Locale
 import java.util.UUID
 
-/** Message on `kiln_example:hello` (both directions). Client input: [text] may be missing. */
-data class HelloMessage(val text: String?)
-
-/** Factory state for the Lua HUD overlay on `kiln_example:machine` (server -> client only). */
-data class MachineState(val running: Boolean, val energy: Float, val output: Int)
-
 /**
  * Demo of the kiln server API: registers the Lua extension `kiln_example` (gauge widget, hello
  * keybind J, factory HUD) from this jar's resources; `/pbdemo` opens a factory GUI with live updates; two server
@@ -53,17 +47,7 @@ data class MachineState(val running: Boolean, val energy: Float, val output: Int
  */
 class ExamplePlugin : JavaPlugin(), Listener, TabExecutor {
 
-    /** Per-player factory state; the screen content lambda simply reads it on every refresh. */
-    private class Factory {
-        var running = false
-        var energy = 0f
-        var counter = 0
-        var machineName = "Maschine 1"
-        var input = 32
-        var output = 0
-    }
-
-    private val factories = HashMap<UUID, Factory>()
+    private val factories = HashMap<UUID, DemoFactory>()
     private val openFactories = HashMap<UUID, ScreenHandle>()
     private val pingPressedAt = HashMap<UUID, Long>()
 
@@ -72,30 +56,29 @@ class ExamplePlugin : JavaPlugin(), Listener, TabExecutor {
 
     override fun onEnable() {
         saveDefaultConfig()
-        // which demos (and so which extensions) this server delivers; two servers behind a proxy can differ
+        val enabled = enabledDemos()
+        if (UI_KIT_DEMOS.any { it in enabled }) registerExtension("ui_kit")
+        if ("factory" in enabled) enableFactory()
+        if ("shop" in enabled) enableShops()
+        for ((command, create) in LUA_DEMOS) if (command in enabled) ExampleCommands.register(this, command, create(this))
+        // resources from extension kiln_content: custom item, sound, font, enchantment, post effect
+        if ("content" in enabled) ExampleCommands.register(this, "kiln", ContentDemo(this))
+    }
+
+    /** Which demos (and so which extensions) this server delivers; two servers behind a proxy can differ. */
+    private fun enabledDemos(): Set<String> {
         val enabled = config.getStringList("demos").map { it.lowercase() }.toSet().ifEmpty { ALL_DEMOS }
         val unknown = enabled - ALL_DEMOS
         if (unknown.isNotEmpty()) logger.warning("Unknown demos in config.yml: $unknown (known: $ALL_DEMOS)")
         logger.info("Demos: ${ALL_DEMOS.filter { it in enabled }}")
-        if (ALL_DEMOS.any { it in enabled && it in UI_KIT_DEMOS }) registerExtension("ui_kit")
-        if ("factory" in enabled) enableFactory()
-        if ("shop" in enabled) {
-            // /shopdsl: server-rendered market (screen DSL); /shop: the same market as Lua extension (ui_kit + shop)
-            val dslShop = ShopService(this)
-            ExampleCommands.register(this, "shopdsl", dslShop)
-            ExampleCommands.register(this, "shop", LuaShopService(this, dslShop))
-        }
-        // five ui_kit demo GUIs (Lua extensions with their own keybind): command -> demo
-        val demos: Map<String, (JavaPlugin) -> LuaDemo> = linkedMapOf(
-            "fabrik" to ::FactoryDemo,
-            "quests" to ::QuestDemo,
-            "warps" to ::WarpDemo,
-            "bestenliste" to ::LeaderboardDemo,
-            "profil" to ::ProfileDemo,
-        )
-        for ((command, create) in demos) if (command in enabled) ExampleCommands.register(this, command, create(this))
-        // resources from extension kiln_content: custom item, sound, font, enchantment, post effect
-        if ("content" in enabled) ExampleCommands.register(this, "kiln", ContentDemo(this))
+        return enabled
+    }
+
+    /** `/shopdsl`: server-rendered market (screen DSL); `/shop`: the same market as Lua extension (ui_kit + shop). */
+    private fun enableShops() {
+        val dslShop = ShopService(this)
+        ExampleCommands.register(this, "shopdsl", dslShop)
+        ExampleCommands.register(this, "shop", LuaShopService(this, dslShop))
     }
 
     /** `/pbdemo`, the factory GUI and the keybinds of extension `kiln_example`. */
@@ -106,7 +89,7 @@ class ExamplePlugin : JavaPlugin(), Listener, TabExecutor {
         extension = registerExtension("kiln_example")
         extension.channel<HelloMessage>("hello") { player, msg ->
             // untrusted client input: bounded text, no control characters
-            val text = msg.text?.take(256)?.filterNot { it.isISOControl() } ?: return@channel
+            val text = msg.text?.take(MAX_HELLO_LENGTH)?.filterNot { it.isISOControl() } ?: return@channel
             player.sendMessage(Component.text("Lua-Erweiterung sagt: \"$text\"", NamedTextColor.LIGHT_PURPLE))
             send(player, HelloMessage("Hallo zurück, ${player.name}!"))
         }
@@ -130,27 +113,20 @@ class ExamplePlugin : JavaPlugin(), Listener, TabExecutor {
         server.pluginManager.registerEvents(this, this)
 
         // live updates: the factory runs once per second and every open GUI is re-rendered
-        server.scheduler.runTaskTimer(this, Runnable { tick() }, 20L, 20L)
+        server.scheduler.runTaskTimer(this, Runnable { tick() }, TICKS_PER_SECOND, TICKS_PER_SECOND)
     }
 
     private fun tick() {
         for ((uuid, factory) in factories) {
             if (!factory.running) continue
-            factory.energy += 0.1f
-            if (factory.energy >= 1f) {
-                factory.energy = 0f
-                if (factory.input > 0) {
-                    factory.input--
-                    factory.output++
-                }
-            }
+            factory.advance()
             openFactories[uuid]?.refresh()
             sendMachineState(uuid, factory)
         }
     }
 
     /** Feeds the Lua HUD overlay of the factory owner. */
-    private fun sendMachineState(uuid: UUID, factory: Factory) {
+    private fun sendMachineState(uuid: UUID, factory: DemoFactory) {
         val player = server.getPlayer(uuid) ?: return
         machineChannel.send(player, MachineState(factory.running, factory.energy.coerceIn(0f, 1f), factory.output))
     }
@@ -158,11 +134,11 @@ class ExamplePlugin : JavaPlugin(), Listener, TabExecutor {
     // ---- GUI ------------------------------------------------------------------------------------------------
 
     private fun openFactory(player: Player) {
-        val factory = factories.getOrPut(player.uniqueId) { Factory() }
+        val factory = factories.getOrPut(player.uniqueId) { DemoFactory() }
         openFactories[player.uniqueId] = player.openScreen(factoryScreen(factory))
     }
 
-    private fun factoryScreen(factory: Factory): ScreenDefinition {
+    private fun factoryScreen(factory: DemoFactory): ScreenDefinition {
         // the text field keeps its initial value: re-sending the live value would overwrite what the player is typing
         val initialName = factory.machineName
         return screen(WIDTH, HEIGHT) {
@@ -180,7 +156,7 @@ class ExamplePlugin : JavaPlugin(), Listener, TabExecutor {
                 )
             }
 
-            text("Energie: ${(factory.energy * 100).toInt()} %", width = INNER, id = "energy_label")
+            text("Energie: ${factory.energyPercent} %", width = INNER, id = "energy_label")
             progressBar(factory.energy, width = INNER, height = 6, color = Color.fromRGB(0xFFCC33), id = "energy")
 
             panel(width = INNER, height = 40, id = "power_row") {
@@ -251,32 +227,26 @@ class ExamplePlugin : JavaPlugin(), Listener, TabExecutor {
     // ---- command --------------------------------------------------------------------------------------------
 
     override fun onCommand(sender: CommandSender, command: Command, label: String, args: Array<out String>): Boolean {
-        val player = sender as? Player ?: run {
-            sender.sendMessage("Nur für Spieler.")
-            return true
-        }
+        val player = ExampleCommands.requirePlayer(sender) ?: return true
         when (args.firstOrNull()?.lowercase() ?: "open") {
             "open" -> openFactory(player)
             "close" -> player.currentKilnScreen?.close()
                 ?: player.sendMessage(Component.text("Keine Kiln-GUI offen.", NamedTextColor.GRAY))
-            "status" -> {
-                val bridge = Kiln.get()
-                val factory = factories[player.uniqueId]
-                player.sendMessage(
-                    Component.text(
-                        "Erweiterungen: ${bridge.extensions().joinToString { "${it.id} ${it.version}" }.ifEmpty { "-" }}" +
-                            (factory?.let { ", Factory '${it.machineName}': Energie ${(it.energy * 100).toInt()} %, Output ${it.output}" } ?: ""),
-                        NamedTextColor.GREEN,
-                    ),
-                )
-            }
+            "status" -> player.sendMessage(Component.text(status(player), NamedTextColor.GREEN))
             else -> player.sendMessage(Component.text("Benutzung: /pbdemo [open|close|status]", NamedTextColor.RED))
         }
         return true
     }
 
+    /** `/pbdemo status`: the loaded extensions and, if the player has one, their factory. */
+    private fun status(player: Player): String {
+        val extensions = Kiln.get().extensions().joinToString { "${it.id} ${it.version}" }.ifEmpty { "-" }
+        val factory = factories[player.uniqueId]?.let { ", Factory '${it.machineName}': Energie ${it.energyPercent} %, Output ${it.output}" }
+        return "Erweiterungen: $extensions${factory ?: ""}"
+    }
+
     override fun onTabComplete(sender: CommandSender, command: Command, label: String, args: Array<out String>): List<String> =
-        if (args.size == 1) SUBCOMMANDS.filter { it.startsWith(args[0].lowercase()) } else emptyList()
+        ExampleCommands.completeFirstArgument(args, SUBCOMMANDS)
 
     // ---- events ---------------------------------------------------------------------------------------------
 
@@ -302,6 +272,10 @@ class ExamplePlugin : JavaPlugin(), Listener, TabExecutor {
         const val WIDTH = 220
         const val HEIGHT = 196
         const val INNER = WIDTH - 12
+        const val TICKS_PER_SECOND = 20L
+
+        /** Longest hello text from the client that is echoed back. */
+        const val MAX_HELLO_LENGTH = 256
         val SUBCOMMANDS = listOf("open", "close", "status")
 
         /** Keys of `demos` in config.yml, in registration order. */
@@ -309,5 +283,14 @@ class ExamplePlugin : JavaPlugin(), Listener, TabExecutor {
 
         /** Demos whose extensions import `ui_kit`. */
         val UI_KIT_DEMOS = setOf("shop", "fabrik", "quests", "warps", "bestenliste", "profil")
+
+        /** The five ui_kit demo GUIs (Lua extensions with their own keybind): command -> demo. */
+        val LUA_DEMOS: Map<String, (JavaPlugin) -> LuaDemo> = linkedMapOf(
+            "fabrik" to ::FactoryDemo,
+            "quests" to ::QuestDemo,
+            "warps" to ::WarpDemo,
+            "bestenliste" to ::LeaderboardDemo,
+            "profil" to ::ProfileDemo,
+        )
     }
 }

@@ -12,74 +12,6 @@ import dev.kiln.example.server.shop.ShopFormat
 import dev.kiln.example.server.shop.ShopValidation
 import java.util.UUID
 
-/** An item in one of the player's storage slots (0..35), as seen by the server. */
-data class SlotContent<I>(
-    /** Single-item copy of the stack. */
-    val template: I,
-    val amount: Int,
-    /** Namespaced item id, e.g. `minecraft:oak_log` (what the client sends as `item`). */
-    val key: String,
-    /** Key path, e.g. `oak_log` (searchable, stored in the offer). */
-    val keyPath: String,
-    /** Plain, searchable name. */
-    val name: String,
-)
-
-/** What the controller needs from the game: the player's storage inventory (main thread only). */
-interface ShopInventoryAccess<I> {
-    /** How many more of [item] fit into [player]'s storage slots. */
-    fun freeSpace(player: UUID, item: I): Long
-
-    /** Gives [amount] of [item]; returns how many had to be dropped. */
-    fun give(player: UUID, item: I, amount: Int): Int
-
-    /** Content of storage slot [slot] (0..35) or `null` if empty / player offline. */
-    fun slot(player: UUID, slot: Int): SlotContent<I>?
-
-    /** How many items similar to [template] (same item and data) the player has. */
-    fun countSimilar(player: UUID, template: I): Int
-
-    /** Removes [amount] items similar to [template], starting at [preferredSlot]; `false` (nothing changed) if too few. */
-    fun take(player: UUID, template: I, amount: Int, preferredSlot: Int): Boolean
-}
-
-/** A completed purchase, for notifying the seller. */
-data class Sale<I>(val offer: Offer<I>, val amount: Int, val total: Long, val buyerName: String)
-
-/**
- * Result of a request: the [result] for the requesting client; [changed] = market or balances changed (broadcast new
- * state); [sale] = notify the seller; [items]/[dropped] for chat/toast feedback.
- */
-data class ShopOutcome<I>(
-    val result: ShopResult,
-    val changed: Boolean = false,
-    val sale: Sale<I>? = null,
-    val item: I? = null,
-    val itemAmount: Int = 0,
-    val dropped: Int = 0,
-)
-
-/** Token bucket per player: [capacity] requests at once, refilled with [perSecond]. Pure (time is passed in). */
-class RequestRateLimiter(private val capacity: Double = 6.0, private val perSecond: Double = 4.0) {
-    private class Bucket(var tokens: Double, var at: Long)
-
-    private val buckets = HashMap<UUID, Bucket>()
-
-    fun tryAcquire(player: UUID, nowMillis: Long): Boolean {
-        val bucket = buckets.getOrPut(player) { Bucket(capacity, nowMillis) }
-        val elapsed = (nowMillis - bucket.at).coerceAtLeast(0)
-        bucket.tokens = minOf(capacity, bucket.tokens + elapsed * perSecond / 1000.0)
-        bucket.at = nowMillis
-        if (bucket.tokens < 1.0) return false
-        bucket.tokens -= 1.0
-        return true
-    }
-
-    fun forget(player: UUID) {
-        buckets.remove(player)
-    }
-}
-
 /**
  * Server side of the Lua shop, independent of Bukkit: validates every client request strictly against the
  * authoritative [market] and the player's real inventory ([access]) and executes it. The client never decides
@@ -111,37 +43,40 @@ class LuaShopController<I>(
             return text
         }
         // own offers first (always needed for "Meine Angebote"), then the market, newest first
-        val mine = market.offersOf(player).mapNotNull { offer ->
-            val item = encoded(offer) ?: return@mapNotNull null
-            MyOfferDto(
-                offer.id, item, offer.name, offer.itemKey, offer.category.name, offer.pricePerUnit, offer.amount,
-                offer.expiresAt?.let { it - now }, offer.isExpired(now),
-            )
-        }
-        val active = market.query(MarketQuery(), now)
+        val mine = market.offersOf(player).mapNotNull { offer -> encoded(offer)?.let { myOfferDto(offer, it, now) } }
         val offers = ArrayList<OfferDto>()
-        for (offer in active) {
+        for (offer in market.query(MarketQuery(), now)) {
             if (offers.size >= MAX_OFFERS) {
                 truncated = true
                 break
             }
             val item = encoded(offer) ?: continue
-            offers += OfferDto(
-                offer.id, item, offer.name, offer.itemKey, offer.category.name, offer.pricePerUnit, offer.amount,
-                offer.sellerName, offer.sellerId == player, offer.createdAt, offer.expiresAt?.let { it - now },
-            )
+            offers += offerDto(offer, item, player, now)
         }
-        // forget items of offers that are gone
-        if (itemCache.size > market.offers().size + 64) {
-            val ids = market.offers().mapTo(HashSet()) { it.id }
-            itemCache.keys.retainAll(ids)
-        }
+        pruneItemCache()
         return ShopState(
             open, tab, market.balance(player), market.startBalance, Market.MAX_PRICE,
             Category.entries.map { LabelDto(it.name, it.label) },
             ListingDuration.entries.map { LabelDto(it.name, it.label) },
             offers, mine, suggest.mapValues { it.value.name }, truncated,
         )
+    }
+
+    private fun myOfferDto(offer: Offer<I>, item: String, now: Long) = MyOfferDto(
+        offer.id, item, offer.name, offer.itemKey, offer.category.name, offer.pricePerUnit, offer.amount,
+        offer.expiresAt?.let { it - now }, offer.isExpired(now),
+    )
+
+    private fun offerDto(offer: Offer<I>, item: String, player: UUID, now: Long) = OfferDto(
+        offer.id, item, offer.name, offer.itemKey, offer.category.name, offer.pricePerUnit, offer.amount,
+        offer.sellerName, offer.sellerId == player, offer.createdAt, offer.expiresAt?.let { it - now },
+    )
+
+    /** Forgets the encoded items of offers that are gone (once enough of them piled up). */
+    private fun pruneItemCache() {
+        if (itemCache.size <= market.offers().size + ITEM_CACHE_SLACK) return
+        val ids = market.offers().mapTo(HashSet()) { it.id }
+        itemCache.keys.retainAll(ids)
     }
 
     // ---- requests -------------------------------------------------------------------------------------------
@@ -155,8 +90,10 @@ class LuaShopController<I>(
         return body(req)
     }
 
+    private fun offerId(msg: JsonObject?): Long? = RequestFields.long(msg, "offer", 1, Long.MAX_VALUE)
+
     fun buy(player: UUID, playerName: String, msg: JsonObject?, now: Long): ShopOutcome<I> = guarded(player, msg, "buy", now) { req ->
-        val offerId = RequestFields.long(msg, "offer", 1, Long.MAX_VALUE) ?: return fail(req, "buy", INVALID)
+        val offerId = offerId(msg) ?: return fail(req, "buy", INVALID)
         val price = RequestFields.long(msg, "price", 1, Market.MAX_PRICE) ?: return fail(req, "buy", INVALID)
         val amount = RequestFields.int(msg, "amount", 1, Int.MAX_VALUE)
         val offer = market.offer(offerId)
@@ -174,8 +111,7 @@ class LuaShopController<I>(
                 val dropped = access.give(player, bought.item, result.amount)
                 ShopOutcome(
                     ShopResult(req, "buy", ok = true, message = "Gekauft: ${ShopFormat.number(result.amount.toLong())}× ${bought.name} für ${ShopFormat.money(result.total)}"),
-                    changed = true, sale = Sale(bought, result.amount, result.total, playerName), item = bought.item,
-                    itemAmount = result.amount, dropped = dropped,
+                    changed = true, sale = Sale(bought, result.amount, result.total, playerName), dropped = dropped,
                 )
             }
         }
@@ -208,23 +144,23 @@ class LuaShopController<I>(
         val offer = market.createOffer(content.template, content.name, content.keyPath, category, price, amount, player, playerName, now, duration, notify)
         ShopOutcome(
             ShopResult(req, "sell", ok = true, message = "Angebot eingestellt: ${ShopFormat.number(amount.toLong())}× ${offer.name} à ${ShopFormat.money(price)}"),
-            changed = true, item = content.template, itemAmount = amount,
+            changed = true,
         )
     }
 
     fun withdraw(player: UUID, msg: JsonObject?, now: Long): ShopOutcome<I> = guarded(player, msg, "withdraw", now) { req ->
-        val offerId = RequestFields.long(msg, "offer", 1, Long.MAX_VALUE) ?: return fail(req, "withdraw", INVALID)
+        val offerId = offerId(msg) ?: return fail(req, "withdraw", INVALID)
         val offer = market.withdraw(player, offerId) ?: return fail(req, "withdraw", "Das Angebot existiert nicht mehr.")
         val dropped = access.give(player, offer.item, offer.amount)
         val where = if (dropped > 0) " ($dropped gedroppt, Inventar voll)" else " zurück im Inventar"
         ShopOutcome(
             ShopResult(req, "withdraw", ok = true, message = "${ShopFormat.number(offer.amount.toLong())}× ${offer.name}$where"),
-            changed = true, item = offer.item, itemAmount = offer.amount, dropped = dropped,
+            changed = true, dropped = dropped,
         )
     }
 
     fun reprice(player: UUID, msg: JsonObject?, now: Long): ShopOutcome<I> = guarded(player, msg, "reprice", now) { req ->
-        val offerId = RequestFields.long(msg, "offer", 1, Long.MAX_VALUE) ?: return fail(req, "reprice", INVALID)
+        val offerId = offerId(msg) ?: return fail(req, "reprice", INVALID)
         val priceText = numberText(msg, "price") ?: return fail(req, "reprice", INVALID)
         ShopValidation.price(priceText)?.let { return fail(req, "reprice", it, mapOf("price" to it)) }
         val price = priceText.toLong()
@@ -244,7 +180,7 @@ class LuaShopController<I>(
         if (!e.isJsonPrimitive || !e.asJsonPrimitive.isNumber) return null
         val d = e.asDouble
         if (d.isNaN() || d.isInfinite()) return null
-        return if (d == Math.floor(d) && Math.abs(d) < 1e15) d.toLong().toString() else d.toString()
+        return if (d == Math.floor(d) && Math.abs(d) < EXACT_INTEGER_LIMIT) d.toLong().toString() else d.toString()
     }
 
     companion object {
@@ -253,6 +189,12 @@ class LuaShopController<I>(
 
         /** Item text per state message (the whole message must stay below 262 144 characters). */
         const val MAX_ITEM_CHARS = 200_000
+
+        /** Encoded items of this many gone offers may stay cached before the cache is pruned. */
+        private const val ITEM_CACHE_SLACK = 64
+
+        /** Below this magnitude a whole double converts to the same long (no rounding, no exponent notation). */
+        private const val EXACT_INTEGER_LIMIT = 1e15
         const val INVALID = "Ungültige Anfrage."
         const val TOO_MANY = "Zu viele Anfragen – bitte kurz warten."
     }

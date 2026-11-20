@@ -1,5 +1,6 @@
 package dev.kiln.example.server.demos.content
 
+import dev.kiln.example.server.ExampleCommands
 import dev.kiln.server.api.Kiln
 import dev.kiln.server.api.extension.Extension
 import dev.kiln.server.api.registerExtension
@@ -14,7 +15,6 @@ import org.bukkit.attribute.Attribute
 import org.bukkit.command.Command
 import org.bukkit.command.CommandSender
 import org.bukkit.command.TabExecutor
-import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
 import org.bukkit.inventory.ItemType
 import org.bukkit.plugin.java.JavaPlugin
@@ -151,7 +151,7 @@ class ContentDemo(private val plugin: JavaPlugin) : TabExecutor {
     }
 
     override fun onCommand(sender: CommandSender, command: Command, label: String, args: Array<out String>): Boolean {
-        val player = sender as? Player ?: return true.also { sender.sendMessage("Nur für Spieler.") }
+        val player = ExampleCommands.requirePlayer(sender) ?: return true
         when (args.getOrNull(0)) {
             "give" -> when (args.getOrNull(1)) {
                 "ruby" -> player.inventory.addItem(ruby.create(4))

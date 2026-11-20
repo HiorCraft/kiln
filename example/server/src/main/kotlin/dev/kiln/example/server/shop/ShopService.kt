@@ -1,5 +1,6 @@
 package dev.kiln.example.server.shop
 
+import dev.kiln.example.server.ExampleCommands
 import dev.kiln.server.api.openFullscreen
 import dev.kiln.server.api.showToast
 import net.kyori.adventure.text.Component
@@ -35,7 +36,7 @@ class ShopService(private val plugin: JavaPlugin) : TabExecutor, Listener {
     init {
         plugin.server.pluginManager.registerEvents(this, plugin)
         seedDemoOffers()
-        plugin.server.scheduler.runTaskTimer(plugin, Runnable { tick() }, 40L, 40L)
+        plugin.server.scheduler.runTaskTimer(plugin, Runnable { tick() }, TICK_PERIOD, TICK_PERIOD)
     }
 
     // ---- opening / refreshing -------------------------------------------------------------------------------
@@ -53,7 +54,7 @@ class ShopService(private val plugin: JavaPlugin) : TabExecutor, Listener {
 
     /** Re-renders every open shop (offers or balances changed) and tells [onChange]. */
     fun refreshAll() {
-        for (session in sessions.values) session.handle?.takeIf { it.isOpen }?.refresh()
+        for (session in sessions.values) refresh(session)
         onChange?.invoke()
     }
 
@@ -69,7 +70,7 @@ class ShopService(private val plugin: JavaPlugin) : TabExecutor, Listener {
                 // the sell tab shows the live inventory: re-render when it changed (pickups, drops, other plugins)
                 ShopTab.SELL -> if (inventorySignature(handle.player) != session.inventorySignature) handle.refresh()
                 // remaining times / expiry
-                ShopTab.MY_OFFERS, ShopTab.MARKET -> if (ticks % 15 == 0) handle.refresh()
+                ShopTab.MY_OFFERS, ShopTab.MARKET -> if (ticks % TICKS_PER_TIME_REFRESH == 0) handle.refresh()
             }
         }
     }
@@ -130,9 +131,8 @@ class ShopService(private val plugin: JavaPlugin) : TabExecutor, Listener {
         val error = market.checkBuy(
             player.uniqueId, offer.id, session.buyAmount, System.currentTimeMillis(), freeSpace(player, offer.item), session.buyPriceSeen,
         )
-        session.buyError = error?.message
+        session.showBuyError(error)
         session.buyConfirm = error == null
-        if (error is BuyError.PriceChanged) session.buyPriceSeen = error.newPrice
         refresh(session)
     }
 
@@ -144,38 +144,41 @@ class ShopService(private val plugin: JavaPlugin) : TabExecutor, Listener {
         when (val result = market.buy(player.uniqueId, offerId, session.buyAmount, System.currentTimeMillis(), space, session.buyPriceSeen)) {
             is BuyResult.Failure -> {
                 session.buyConfirm = false
-                session.buyError = result.error.message
-                if (result.error is BuyError.PriceChanged) session.buyPriceSeen = result.error.newPrice
+                session.showBuyError(result.error)
                 refresh(session)
             }
             is BuyResult.Success -> {
-                val offer = result.offer
-                val dropped = give(player, offer.item, result.amount)
-                val shulkerNote = if (session.buyShulker) " (Shulker-Lieferung ist nur Demo)" else ""
-                session.closeBuyDialog()
-                player.showToast(
-                    Component.text("Gekauft!", NamedTextColor.GREEN),
-                    Component.text("${result.amount}× ").append(offer.item.effectiveName())
-                        .append(Component.text(" für ${ShopFormat.money(result.total)}")),
-                    offer.item.asQuantity(result.amount.coerceAtMost(offer.item.maxStackSize)),
-                )
-                player.sendMessage(
-                    Component.text("Du hast ${result.amount}× ${offer.name} für ${ShopFormat.money(result.total)} gekauft$shulkerNote.", NamedTextColor.GREEN),
-                )
-                if (dropped > 0) player.sendMessage(Component.text("$dropped Stück passten nicht ins Inventar und wurden gedroppt.", NamedTextColor.YELLOW))
-                notifySeller(offer, result.amount, result.total, player.name)
+                deliverPurchase(player, session, result)
                 refreshAll()
             }
         }
     }
 
-    private fun notifySeller(offer: Offer<ItemStack>, amount: Int, total: Long, buyerName: String) {
+    private fun deliverPurchase(player: Player, session: ShopSession, purchase: BuyResult.Success<ItemStack>) {
+        val offer = purchase.offer
+        val dropped = give(player, offer.item, purchase.amount)
+        val shulkerNote = if (session.buyShulker) " (Shulker-Lieferung ist nur Demo)" else ""
+        session.closeBuyDialog()
+        player.showToast(
+            Component.text("Gekauft!", NamedTextColor.GREEN),
+            textAroundItemName("${purchase.amount}× ", offer.item, " für ${ShopFormat.money(purchase.total)}"),
+            toastIcon(offer.item, purchase.amount),
+        )
+        player.sendMessage(
+            Component.text("Du hast ${purchase.amount}× ${offer.name} für ${ShopFormat.money(purchase.total)} gekauft$shulkerNote.", NamedTextColor.GREEN),
+        )
+        if (dropped > 0) player.sendMessage(Component.text("$dropped Stück passten nicht ins Inventar und wurden gedroppt.", NamedTextColor.YELLOW))
+        notifySeller(offer, purchase.amount, purchase.total, player.name)
+    }
+
+    /** Toast and chat message for the seller of [offer] (if online and they asked for it); used by both shops. */
+    fun notifySeller(offer: Offer<ItemStack>, amount: Int, total: Long, buyerName: String) {
         val seller = offer.sellerId?.let { Bukkit.getPlayer(it) } ?: return
         if (!offer.notifyOnSale) return
         seller.showToast(
             Component.text("Verkauft!", NamedTextColor.GOLD),
-            Component.text("$buyerName: ${amount}× ").append(offer.item.effectiveName()).append(Component.text(" (+${ShopFormat.money(total)})")),
-            offer.item.asQuantity(amount.coerceAtMost(offer.item.maxStackSize)),
+            textAroundItemName("$buyerName: ${amount}× ", offer.item, " (+${ShopFormat.money(total)})"),
+            toastIcon(offer.item, amount),
         )
         seller.sendMessage(Component.text("$buyerName hat ${amount}× ${offer.name} von dir gekauft: +${ShopFormat.money(total)}", NamedTextColor.GOLD))
     }
@@ -239,8 +242,8 @@ class ShopService(private val plugin: JavaPlugin) : TabExecutor, Listener {
         session.clearSellForm()
         player.showToast(
             Component.text("Angebot eingestellt", NamedTextColor.GREEN),
-            Component.text("${offer.amount}× ").append(template.effectiveName()).append(Component.text(" à ${ShopFormat.money(price)}")),
-            template.asQuantity(amount.coerceAtMost(template.maxStackSize)),
+            textAroundItemName("${offer.amount}× ", template, " à ${ShopFormat.money(price)}"),
+            toastIcon(template, amount),
         )
         refreshAll()
     }
@@ -259,9 +262,8 @@ class ShopService(private val plugin: JavaPlugin) : TabExecutor, Listener {
         val dropped = give(player, offer.item, offer.amount)
         player.showToast(
             Component.text("Angebot zurückgezogen", NamedTextColor.YELLOW),
-            Component.text("${offer.amount}× ").append(offer.item.effectiveName())
-                .append(Component.text(if (dropped > 0) " ($dropped gedroppt)" else " zurück im Inventar")),
-            offer.item.asQuantity(offer.amount.coerceAtMost(offer.item.maxStackSize)),
+            textAroundItemName("${offer.amount}× ", offer.item, if (dropped > 0) " ($dropped gedroppt)" else " zurück im Inventar"),
+            toastIcon(offer.item, offer.amount),
         )
         if (dropped > 0) player.sendMessage(Component.text("Inventar voll: $dropped Stück wurden vor dir gedroppt.", NamedTextColor.YELLOW))
         refreshAll()
@@ -292,7 +294,7 @@ class ShopService(private val plugin: JavaPlugin) : TabExecutor, Listener {
         val greta = UUID.nameUUIDFromBytes("kiln-demo:Greta".toByteArray())
         var age = 0L
         fun offer(stack: ItemStack, price: Long, amount: Int, seller: UUID? = null, sellerName: String = "Server", category: Category? = null) {
-            age += 7 * 60_000L
+            age += DEMO_OFFER_AGE_STEP_MILLIS
             market.createOffer(
                 stack.asOne(), plainName(stack), stack.type.key.value(), category ?: suggestCategory(stack), price, amount,
                 seller, sellerName, now - age, if (seller == null) null else ListingDuration.D7, false,
@@ -332,10 +334,7 @@ class ShopService(private val plugin: JavaPlugin) : TabExecutor, Listener {
     // ---- command / events -----------------------------------------------------------------------------------
 
     override fun onCommand(sender: CommandSender, command: Command, label: String, args: Array<out String>): Boolean {
-        val player = sender as? Player ?: run {
-            sender.sendMessage("Nur für Spieler.")
-            return true
-        }
+        val player = ExampleCommands.requirePlayer(sender) ?: return true
         when (args.firstOrNull()?.lowercase()) {
             null, "open" -> open(player)
             "balance" -> player.sendMessage(Component.text("Kontostand: ${ShopFormat.money(market.balance(player.uniqueId))}", NamedTextColor.GOLD))
@@ -345,7 +344,7 @@ class ShopService(private val plugin: JavaPlugin) : TabExecutor, Listener {
     }
 
     override fun onTabComplete(sender: CommandSender, command: Command, label: String, args: Array<out String>): List<String> =
-        if (args.size == 1) listOf("open", "balance").filter { it.startsWith(args[0].lowercase()) } else emptyList()
+        ExampleCommands.completeFirstArgument(args, listOf("open", "balance"))
 
     @EventHandler
     fun onQuit(event: PlayerQuitEvent) {
@@ -356,5 +355,21 @@ class ShopService(private val plugin: JavaPlugin) : TabExecutor, Listener {
     private companion object {
         /** Hotbar (0..8) and main inventory (9..35); armor and offhand are never touched. */
         const val STORAGE_SLOTS = 36
+
+        /** Server ticks between two [tick]s (2 s). */
+        const val TICK_PERIOD = 40L
+
+        /** Every this many [tick]s (30 s) the market and own offers re-render for remaining times and expiry. */
+        const val TICKS_PER_TIME_REFRESH = 15
+
+        /** The demo offers are created this far apart in the past, so "newest first" has an order. */
+        const val DEMO_OFFER_AGE_STEP_MILLIS = 7 * 60_000L
     }
 }
+
+/** `<before><item name><after>`, with the item's own (possibly styled) name. */
+internal fun textAroundItemName(before: String, item: ItemStack, after: String): Component =
+    Component.text(before).append(item.effectiveName()).append(Component.text(after))
+
+/** Icon of a toast about [amount] of [item]: one stack at most. */
+private fun toastIcon(item: ItemStack, amount: Int): ItemStack = item.asQuantity(amount.coerceAtMost(item.maxStackSize))

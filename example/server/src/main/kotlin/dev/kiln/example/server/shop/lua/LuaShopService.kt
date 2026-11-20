@@ -6,9 +6,8 @@ import dev.kiln.server.api.extension.ExtensionChannel
 import dev.kiln.server.api.extension.ExtensionItems
 import dev.kiln.server.api.extension.channel
 import dev.kiln.server.api.registerExtension
-import dev.kiln.server.api.showToast
+import dev.kiln.example.server.ExampleCommands
 import dev.kiln.example.server.shop.Category
-import dev.kiln.example.server.shop.InventoryMath
 import dev.kiln.example.server.shop.ShopFormat
 import dev.kiln.example.server.shop.ShopService
 import net.kyori.adventure.text.Component
@@ -66,7 +65,7 @@ class LuaShopService(private val plugin: JavaPlugin, private val dsl: ShopServic
         // changes made in the DSL shop (or by us, via dsl.refreshAll) reach every open Lua shop
         dsl.onChange = { broadcastState() }
         plugin.server.pluginManager.registerEvents(this, plugin)
-        plugin.server.scheduler.runTaskTimer(plugin, Runnable { tick() }, 20L, 20L)
+        plugin.server.scheduler.runTaskTimer(plugin, Runnable { tick() }, TICK_PERIOD, TICK_PERIOD)
     }
 
     // ---- state ----------------------------------------------------------------------------------------------
@@ -115,7 +114,7 @@ class LuaShopService(private val plugin: JavaPlugin, private val dsl: ShopServic
             val player = Bukkit.getPlayer(uuid) ?: continue
             val signature = dsl.inventorySignature(player)
             // inventory changed (category suggestions) or every 30 s (expired offers, remaining times)
-            if (signature != inventorySignatures[uuid] || ticks % 30 == 0) {
+            if (signature != inventorySignatures[uuid] || ticks % TICKS_PER_TIME_REFRESH == 0) {
                 inventorySignatures[uuid] = signature
                 sendState(player)
             }
@@ -129,30 +128,15 @@ class LuaShopService(private val plugin: JavaPlugin, private val dsl: ShopServic
         if (outcome.dropped > 0) {
             player.sendMessage(Component.text("Inventar voll: ${outcome.dropped} Stück wurden vor dir gedroppt.", NamedTextColor.YELLOW))
         }
-        outcome.sale?.let { notifySeller(it) }
+        outcome.sale?.let { dsl.notifySeller(it.offer, it.amount, it.total, it.buyerName) }
         // re-renders the DSL shops and (via dsl.onChange) sends the new state to every open Lua shop
         if (outcome.changed) dsl.refreshAll()
-    }
-
-    private fun notifySeller(sale: Sale<ItemStack>) {
-        val offer = sale.offer
-        val seller = offer.sellerId?.let { Bukkit.getPlayer(it) } ?: return
-        if (!offer.notifyOnSale) return
-        seller.showToast(
-            Component.text("Verkauft!", NamedTextColor.GOLD),
-            Component.text("${sale.buyerName}: ${sale.amount}× ").append(offer.item.effectiveName()).append(Component.text(" (+${ShopFormat.money(sale.total)})")),
-            offer.item.asQuantity(sale.amount.coerceAtMost(offer.item.maxStackSize)),
-        )
-        seller.sendMessage(Component.text("${sale.buyerName} hat ${sale.amount}× ${offer.name} von dir gekauft: +${ShopFormat.money(sale.total)}", NamedTextColor.GOLD))
     }
 
     // ---- command / events -----------------------------------------------------------------------------------
 
     override fun onCommand(sender: CommandSender, command: Command, label: String, args: Array<out String>): Boolean {
-        val player = sender as? Player ?: run {
-            sender.sendMessage("Nur für Spieler.")
-            return true
-        }
+        val player = ExampleCommands.requirePlayer(sender) ?: return true
         when (args.firstOrNull()?.lowercase()) {
             null, "open", "markt" -> open(player, "market")
             "verkaufen", "sell" -> open(player, "sell")
@@ -164,7 +148,7 @@ class LuaShopService(private val plugin: JavaPlugin, private val dsl: ShopServic
     }
 
     override fun onTabComplete(sender: CommandSender, command: Command, label: String, args: Array<out String>): List<String> =
-        if (args.size == 1) listOf("markt", "verkaufen", "angebote", "balance").filter { it.startsWith(args[0].lowercase()) } else emptyList()
+        ExampleCommands.completeFirstArgument(args, listOf("markt", "verkaufen", "angebote", "balance"))
 
     @EventHandler
     fun onQuit(event: PlayerQuitEvent) {
@@ -173,33 +157,12 @@ class LuaShopService(private val plugin: JavaPlugin, private val dsl: ShopServic
         inventorySignatures.remove(uuid)
         controller.forget(uuid)
     }
-}
 
-/** [ShopInventoryAccess] on the storage slots (0..35) of online players; armor and offhand are never touched. */
-private class BukkitInventoryAccess(private val dsl: ShopService) : ShopInventoryAccess<ItemStack> {
-    private fun player(uuid: UUID): Player? = Bukkit.getPlayer(uuid)
+    private companion object {
+        /** Server ticks between two [tick]s (1 s). */
+        const val TICK_PERIOD = 20L
 
-    override fun freeSpace(player: UUID, item: ItemStack): Long = player(player)?.let { dsl.freeSpace(it, item) } ?: 0L
-
-    override fun give(player: UUID, item: ItemStack, amount: Int): Int {
-        val p = player(player) ?: return amount
-        return dsl.give(p, item, amount)
-    }
-
-    override fun slot(player: UUID, slot: Int): SlotContent<ItemStack>? {
-        val p = player(player) ?: return null
-        if (slot !in 0 until LuaShopController.STORAGE_SLOTS) return null
-        val stack = p.inventory.getItem(slot)?.takeUnless { it.isEmpty } ?: return null
-        val one = stack.asOne()
-        return SlotContent(one, stack.amount, stack.type.key.asString(), stack.type.key.value(), dsl.plainName(one))
-    }
-
-    override fun countSimilar(player: UUID, template: ItemStack): Int = player(player)?.let { dsl.countInInventory(it, template) } ?: 0
-
-    override fun take(player: UUID, template: ItemStack, amount: Int, preferredSlot: Int): Boolean {
-        val p = player(player) ?: return false
-        val plan = InventoryMath.planRemove(dsl.slots(p, template), amount, preferredSlot) ?: return false
-        dsl.apply(p, template, plan)
-        return true
+        /** Every this many [tick]s (30 s) open shops get a new state for expired offers and remaining times. */
+        const val TICKS_PER_TIME_REFRESH = 30
     }
 }

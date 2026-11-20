@@ -1,6 +1,5 @@
 package dev.kiln.example.server.demos.bestenliste
 
-import dev.kiln.example.server.demos.DemoResult
 import dev.kiln.example.server.demos.LuaDemo
 import org.bukkit.Bukkit
 import org.bukkit.Statistic
@@ -17,41 +16,37 @@ import java.util.UUID
 class LeaderboardDemo(plugin: JavaPlugin) : LuaDemo(plugin, "bestenliste") {
     private val board = Leaderboard()
 
-    /** Last read game statistics per player: play minutes, distance in m (deltas count for day/week). */
-    private val lastStats = HashMap<UUID, LongArray>()
+    /** Last read game statistics per player (deltas count for day/week). */
+    private val lastStats = HashMap<UUID, StatReading>()
     private var ticks = 0
 
     init {
         request("query") { player, msg -> board.query(player.uniqueId, msg, System.currentTimeMillis()) }
-        plugin.server.scheduler.runTaskTimer(plugin, Runnable { tick() }, 100L, 100L)
+        plugin.server.scheduler.runTaskTimer(plugin, Runnable { tick() }, TICK_PERIOD, TICK_PERIOD)
     }
 
     private fun tick() {
         ticks++
         board.simulate()
         for (player in Bukkit.getOnlinePlayers()) readStatistics(player)
-        if (ticks % 12 == 0) board.snapshot() // trend = gain within the last minute
+        if (ticks % TICKS_PER_TREND == 0) board.snapshot()
         pushAll()
     }
 
     private fun readStatistics(player: Player) {
-        val minutes = player.getStatistic(Statistic.PLAY_ONE_MINUTE) / 1200L
-        val meters = (player.getStatistic(Statistic.WALK_ONE_CM) + player.getStatistic(Statistic.SPRINT_ONE_CM)) / 100L
+        // PLAY_ONE_MINUTE counts ticks despite its name
+        val minutes = player.getStatistic(Statistic.PLAY_ONE_MINUTE) / TICKS_PER_MINUTE
+        val meters = (player.getStatistic(Statistic.WALK_ONE_CM) + player.getStatistic(Statistic.SPRINT_ONE_CM)) / CM_PER_METER
         val last = lastStats[player.uniqueId]
         if (last != null) {
-            board.record(player.name, StatCategory.PLAYTIME, minutes - last[0])
-            board.record(player.name, StatCategory.DISTANCE, meters - last[1])
+            board.record(player.name, StatCategory.PLAYTIME, minutes - last.minutes)
+            board.record(player.name, StatCategory.DISTANCE, meters - last.meters)
         }
-        lastStats[player.uniqueId] = longArrayOf(minutes, meters)
+        lastStats[player.uniqueId] = StatReading(minutes, meters)
         board.setTotal(player.name, StatCategory.PLAYTIME, minutes)
         board.setTotal(player.name, StatCategory.DISTANCE, meters)
         board.setTotal(player.name, StatCategory.KILLS, player.getStatistic(Statistic.MOB_KILLS).toLong())
         board.setTotal(player.name, StatCategory.DEATHS, player.getStatistic(Statistic.DEATHS).toLong())
-    }
-
-    override fun afterRequest(player: Player, result: DemoResult) {
-        // the answer to a query is the state with the new selection
-        if (result.ok) push(player)
     }
 
     override fun state(player: Player): Any = board.state(player.uniqueId, player.name)
@@ -71,5 +66,15 @@ class LeaderboardDemo(plugin: JavaPlugin) : LuaDemo(plugin, "bestenliste") {
             return
         }
         event.entity.killer?.let { board.record(it.name, StatCategory.KILLS, 1) }
+    }
+
+    private companion object {
+        /** Server ticks between two [tick]s (5 s). */
+        const val TICK_PERIOD = 100L
+
+        /** Every this many [tick]s (1 min) a new trend interval starts: trend = gain within the last minute. */
+        const val TICKS_PER_TREND = 12
+        const val TICKS_PER_MINUTE = 1200L
+        const val CM_PER_METER = 100L
     }
 }

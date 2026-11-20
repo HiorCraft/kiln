@@ -5,13 +5,6 @@ package dev.kiln.example.server.shop
  * either is [similar] to the item being moved or not. The Paper layer maps the player's storage slots (0..35)
  * to this model and applies the resulting plans in the same tick, so what was computed is what happens.
  */
-data class SlotStack(val similar: Boolean, val amount: Int)
-
-/** Set [slot] to [newAmount] of the moved item (`0` = empty the slot); [wasEmpty] = create a new stack there. */
-data class SlotChange(val slot: Int, val newAmount: Int, val wasEmpty: Boolean)
-
-data class InsertPlan(val changes: List<SlotChange>, val leftover: Int)
-
 object InventoryMath {
 
     /** How many more items of the moved kind fit into [slots] with stacks of at most [maxStack]. */

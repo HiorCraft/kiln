@@ -13,37 +13,6 @@ import java.util.UUID
  * C->S  save {req, settings: {nickname, nickColor, status, chatFilter, volume, notifications, privateMessages, compactChat}}
  */
 
-data class Settings(
-    /** Shown instead of the player name; empty = player name. */
-    val nickname: String = "",
-    val nickColor: String = "white",
-    val status: String = "",
-    val chatFilter: String = "MILD",
-    val volume: Int = 80,
-    val notifications: Boolean = true,
-    val privateMessages: Boolean = true,
-    val compactChat: Boolean = false,
-)
-
-data class ColorDto(val id: String, val label: String, val color: Long)
-
-data class OptionDto(val id: String, val label: String)
-
-data class ProfileState(
-    val name: String,
-    val settings: Settings,
-    val defaults: Settings,
-    val colors: List<ColorDto>,
-    val filters: List<OptionDto>,
-    val nickMin: Int,
-    val nickMax: Int,
-    val statusMax: Int,
-    val volumeStep: Int,
-)
-
-/** Result of `save`: [settings] = the saved settings to apply (only when ok). */
-data class SaveOutcome(val result: DemoResult, val settings: Settings? = null)
-
 class ProfileSettings(private val guard: RequestGuard = RequestGuard()) {
     private val saved = HashMap<UUID, Settings>()
 
@@ -73,14 +42,16 @@ class ProfileSettings(private val guard: RequestGuard = RequestGuard()) {
             ) {
                 return@run DemoResult.fail(req, "save", DemoResult.INVALID)
             }
+            val nick = nickname.trim()
+            val statusText = status.trim()
             val fields = LinkedHashMap<String, String>()
-            validateNickname(nickname.trim())?.let { fields["nickname"] = it }
+            validateNickname(nick)?.let { fields["nickname"] = it }
             if (COLORS.none { it.id == nickColor }) fields["nickColor"] = "Unbekannte Farbe."
-            validateStatus(status.trim())?.let { fields["status"] = it }
+            validateStatus(statusText)?.let { fields["status"] = it }
             if (FILTERS.none { it.first == chatFilter }) fields["chatFilter"] = "Unbekannte Filterstufe."
             if (volume !in 0..100 || volume % VOLUME_STEP != 0) fields["volume"] = "0–100 in Schritten von $VOLUME_STEP."
             if (fields.isNotEmpty()) return@run DemoResult.fail(req, "save", "Bitte prüfe die markierten Felder.", fields)
-            val settings = Settings(nickname.trim(), nickColor, status.trim(), chatFilter, volume, notifications, privateMessages, compactChat)
+            val settings = Settings(nick, nickColor, statusText, chatFilter, volume, notifications, privateMessages, compactChat)
             saved[player] = settings
             applied = settings
             DemoResult.ok(req, "save", "Einstellungen gespeichert.")
@@ -92,8 +63,6 @@ class ProfileSettings(private val guard: RequestGuard = RequestGuard()) {
         saved.remove(player)
         guard.forget(player)
     }
-
-    data class NickColor(val id: String, val label: String, val rgb: Long)
 
     companion object {
         const val NICK_MIN = 3

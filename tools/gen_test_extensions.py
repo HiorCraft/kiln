@@ -25,7 +25,11 @@ from pathlib import Path
 
 MIB = 1024 * 1024
 MAX_ZIP = 4 * MIB
-ALL_PERMS = ["widgets", "keybinds", "hud", "channels", "toasts"]
+MAX_ICON_BYTES = 16 * 1024
+ZIP_OVERHEAD_MARGIN = 64 * 1024  # room for zip headers on top of the raw file sizes
+
+W, K, H, C, T = "widgets", "keybinds", "hud", "channels", "toasts"
+ALL_PERMS = [W, K, H, C, T]
 
 # ---- PNG -------------------------------------------------------------------------------------------------
 
@@ -54,7 +58,7 @@ def hsv(h, s, v):
     return int(r * 255), int(g * 255), int(b * 255)
 
 
-def inside(shape, x, y, n):
+def inside(shape, x, y):
     """Shape mask in [-1, 1]^2 coordinates."""
     r = math.hypot(x, y)
     a = math.atan2(y, x)
@@ -98,7 +102,7 @@ def icon_png(size, shape, hue):
             x = (px + 0.5) / size * 2 - 1
             y = (py + 0.5) / size * 2 - 1
             edge = max(abs(x), abs(y)) > 0.94
-            if inside(shape, x, -y, size):
+            if inside(shape, x, -y):
                 c = hi if (x + y) < -0.6 else fg
                 row += bytes(c) + b"\xff"
             elif edge:
@@ -111,8 +115,6 @@ def icon_png(size, shape, hue):
 
 # ---- Extensions ------------------------------------------------------------------------------------------
 # (id, name, version, permissions, icon shape, icon size, large texture spec [(name, w, h)], options)
-
-W, K, H, C, T = "widgets", "keybinds", "hud", "channels", "toasts"
 
 EXTENSIONS = [
     ("foerderband_anzeigen", "Förderband-Anzeigen", "1.2.0", [W, H, C], "stripes", 32, [], {}),
@@ -165,9 +167,13 @@ def color(hue, s=0.7, v=0.9, a=0xFF):
     return "0x%02X%02X%02X%02X" % (a, r, g, b)
 
 
+def extension_hue(index):
+    """Hue of the index-th extension (icon and accent color), spread around the color wheel."""
+    return (index * 0.137) % 1
+
+
 def main_lua(index, ext_id, name, perms, textures, opts):
-    hue = (index * 0.137) % 1
-    accent = color(hue)
+    accent = color(extension_hue(index))
     out = [
         f"-- {name} ({ext_id}): generated test extension (tools/gen_test_extensions.py), Lua-API v1.",
         f"-- Permissions: {', '.join(perms) if perms else 'none'}. Harmless: nothing is shown or sent while loading.",
@@ -179,120 +185,134 @@ def main_lua(index, ext_id, name, perms, textures, opts):
         "",
     ]
     tex_ids = [f"textures/{t[0]}.png" for t in textures]
+    out += notify_lua(name, perms)
+    if not perms:
+        out += palette_lua()
+    if W in perms:
+        out += widget_lua(ext_id, name, tex_ids)
+    if C in perms:
+        out += channel_lua(ext_id, perms)
+    if K in perms:
+        out += keybind_lua(name, perms, opts.get("key"))
+    if H in perms:
+        out += hud_lua(index, name, tex_ids, opts.get("subtle"))
+    out += [f'print("{ext_id} geladen")', ""]
+    return "\n".join(out)
 
+
+def notify_lua(name, perms):
     if T in perms:
-        out += [
+        return [
             "local function notify(text)",
             f"  kiln.ui.toast({lua_str(name)}, text)",
             "end",
             "",
         ]
+    return ["local function notify(text) end", ""]
+
+
+def palette_lua():
+    return [
+        "-- no permissions: only always-available helpers (lerpColor, time)",
+        "local palette = {}",
+        "for i = 0, 7 do",
+        "  palette[#palette + 1] = kiln.ui.lerpColor(0xFF203040, ACCENT, i / 7)",
+        "end",
+        "state.data = { palette = palette, started = kiln.time() }",
+    ]
+
+
+def widget_lua(ext_id, name, tex_ids):
+    wname = "anzeige" if not tex_ids else "bild"
+    out = [
+        f'kiln.ui.widget("{ext_id}:{wname}", {{',
+        "  init = function(self) self.t = 0 end,",
+        "  render = function(self, g, w)",
+        "    g:rect(0, 0, w.width, w.height, BG)",
+    ]
+    if tex_ids:
+        out += [
+            f"    local textures = {{ {', '.join(lua_str(t) for t in tex_ids)} }}",
+            "    local n = math.floor(tonumber(w.props.page) or 1)",
+            "    if n < 1 or n > #textures then n = 1 end",
+            "    g:texture(textures[n], 1, 1, math.max(1, w.width - 2), math.max(1, w.height - 2))",
+        ]
     else:
-        out += ["local function notify(text) end", ""]
-
-    if not perms:
         out += [
-            "-- no permissions: only always-available helpers (lerpColor, time)",
-            "local palette = {}",
-            "for i = 0, 7 do",
-            f"  palette[#palette + 1] = kiln.ui.lerpColor(0xFF203040, ACCENT, i / 7)",
-            "end",
-            "state.data = { palette = palette, started = kiln.time() }",
+            "    local value = tonumber(w.props.value) or 0.5",
+            "    if value ~= value or value < 0 then value = 0 elseif value > 1 then value = 1 end",
+            "    g:rect(2, w.height - 6, math.floor((w.width - 4) * value), 4, ACCENT)",
+            f"    g:text(w.props.label or {lua_str(name)}, 3, 3, {{ color = TEXT, shadow = true }})",
         ]
+    return out + [
+        "    if w.hovered then",
+        "      g:outline(0, 0, w.width, w.height, 0x80FFFFFF)",
+        f"      kiln.ui.tooltip({lua_str(name)})",
+        "    end",
+        "  end,",
+        "  click = function(self, w, button) return button == 0 end,",
+        "})",
+        "",
+    ]
 
-    if W in perms:
-        wname = "anzeige" if not tex_ids else "bild"
-        out += [
-            f'kiln.ui.widget("{ext_id}:{wname}", {{',
-            "  init = function(self) self.t = 0 end,",
-            "  render = function(self, g, w)",
-            "    g:rect(0, 0, w.width, w.height, BG)",
-        ]
-        if tex_ids:
-            out += [
-                f"    local textures = {{ {', '.join(lua_str(t) for t in tex_ids)} }}",
-                "    local n = math.floor(tonumber(w.props.page) or 1)",
-                "    if n < 1 or n > #textures then n = 1 end",
-                "    g:texture(textures[n], 1, 1, math.max(1, w.width - 2), math.max(1, w.height - 2))",
-            ]
-        else:
-            out += [
-                "    local value = tonumber(w.props.value) or 0.5",
-                "    if value ~= value or value < 0 then value = 0 elseif value > 1 then value = 1 end",
-                "    g:rect(2, w.height - 6, math.floor((w.width - 4) * value), 4, ACCENT)",
-                f"    g:text(w.props.label or {lua_str(name)}, 3, 3, {{ color = TEXT, shadow = true }})",
-            ]
-        out += [
-            "    if w.hovered then",
-            "      g:outline(0, 0, w.width, w.height, 0x80FFFFFF)",
-            f"      kiln.ui.tooltip({lua_str(name)})",
-            "    end",
-            "  end,",
-            "  click = function(self, w, button) return button == 0 end,",
-            "})",
+
+def channel_lua(ext_id, perms):
+    chan = ext_id.split("_")[0][:32]
+    out = [
+        f'local channel = kiln.net.channel("{chan}")',
+        "channel:on(function(msg)",
+        '  if type(msg) ~= "table" then return end',
+        "  state.data = msg",
+        "  state.count = state.count + 1",
+    ]
+    if H in perms:
+        out += ["  state.visible = msg.visible ~= false"]
+    if T in perms:
+        out += ['  if type(msg.toast) == "string" then notify(string.sub(msg.toast, 1, 120)) end']
+    return out + ["end)", ""]
+
+
+def keybind_lua(name, perms, key):
+    default_line = f'  default = "{key}",' if key else "  -- no default key: the player binds it in the controls menu"
+    out = [
+        'kiln.keys.bind("umschalten", {',
+        f"  name = {lua_str(name + ' umschalten')},",
+        default_line,
+        "  press = function()",
+        "    state.visible = not state.visible",
+    ]
+    if T in perms:
+        out += ['    notify(state.visible and "eingeblendet" or "ausgeblendet")']
+    return out + ["  end,", "})", ""]
+
+
+def hud_lua(index, name, tex_ids, subtle):
+    anchor = ANCHORS[index % len(ANCHORS)]
+    if subtle:
+        return [
+            f'kiln.hud.layer("hinweis", {{ anchor = "{anchor}", width = 6, height = 6 }}, function(g, area)',
+            "  -- subtle: a small, slowly pulsing dot",
+            "  local pulse = 0.5 + 0.5 * math.sin(kiln.time() * 2)",
+            "  g:rect(1, 1, 4, 4, kiln.ui.lerpColor(0x30FFFFFF, 0x60FFFFFF, pulse))",
+            "end)",
             "",
         ]
-
-    if C in perms:
-        chan = ext_id.split("_")[0][:32]
+    size = (96, 96) if tex_ids else (110, 24)
+    out = [
+        f'kiln.hud.layer("overlay", {{ anchor = "{anchor}", width = {size[0]}, height = {size[1]} }}, function(g, area)',
+        "  if not state.visible then return end -- hidden by default",
+        "  g:rect(0, 0, area.width, area.height, BG)",
+    ]
+    if tex_ids:
+        out += [f'  g:texture("{tex_ids[0]}", 2, 2, area.width - 4, area.height - 4)']
+    else:
         out += [
-            f'local channel = kiln.net.channel("{chan}")',
-            "channel:on(function(msg)",
-            '  if type(msg) ~= "table" then return end',
-            "  state.data = msg",
-            "  state.count = state.count + 1",
+            f"  g:text({lua_str(name)}, 4, 4, {{ color = ACCENT, shadow = true }})",
+            '  local me = kiln.player()',
+            '  local info = me and string.format("%.0f / %.0f / %.0f", me.x, me.y, me.z) or ("#" .. state.count)',
+            "  g:text(info, 4, 14, { color = TEXT })",
         ]
-        if H in perms:
-            out += ["  state.visible = msg.visible ~= false"]
-        if T in perms:
-            out += ['  if type(msg.toast) == "string" then notify(string.sub(msg.toast, 1, 120)) end']
-        out += ["end)", ""]
-
-    if K in perms:
-        key = opts.get("key")
-        default_line = f'  default = "{key}",' if key else "  -- no default key: the player binds it in the controls menu"
-        out += [
-            'kiln.keys.bind("umschalten", {',
-            f"  name = {lua_str(name + ' umschalten')},",
-            default_line,
-            "  press = function()",
-            "    state.visible = not state.visible",
-        ]
-        if T in perms:
-            out += [f'    notify(state.visible and "eingeblendet" or "ausgeblendet")']
-        out += ["  end,", "})", ""]
-
-    if H in perms:
-        anchor = ANCHORS[index % len(ANCHORS)]
-        if opts.get("subtle"):
-            out += [
-                f'kiln.hud.layer("hinweis", {{ anchor = "{anchor}", width = 6, height = 6 }}, function(g, area)',
-                "  -- subtle: a small, slowly pulsing dot",
-                "  local pulse = 0.5 + 0.5 * math.sin(kiln.time() * 2)",
-                "  g:rect(1, 1, 4, 4, kiln.ui.lerpColor(0x30FFFFFF, 0x60FFFFFF, pulse))",
-                "end)",
-                "",
-            ]
-        else:
-            size = (96, 96) if tex_ids else (110, 24)
-            out += [
-                f'kiln.hud.layer("overlay", {{ anchor = "{anchor}", width = {size[0]}, height = {size[1]} }}, function(g, area)',
-                "  if not state.visible then return end -- hidden by default",
-                "  g:rect(0, 0, area.width, area.height, BG)",
-            ]
-            if tex_ids:
-                out += [f'  g:texture("{tex_ids[0]}", 2, 2, area.width - 4, area.height - 4)']
-            else:
-                out += [
-                    f"  g:text({lua_str(name)}, 4, 4, {{ color = ACCENT, shadow = true }})",
-                    '  local me = kiln.player()',
-                    '  local info = me and string.format("%.0f / %.0f / %.0f", me.x, me.y, me.z) or ("#" .. state.count)',
-                    "  g:text(info, 4, 14, { color = TEXT })",
-                ]
-            out += ["end)", ""]
-
-    out += [f'print("{ext_id} geladen")', ""]
-    return "\n".join(out)
+    return out + ["end)", ""]
 
 
 def build(out_dir: Path):
@@ -303,9 +323,8 @@ def build(out_dir: Path):
         if target.exists():
             shutil.rmtree(target)
         target.mkdir()
-        hue = (index * 0.137) % 1
-        icon = icon_png(icon_size, shape, hue)
-        assert len(icon) <= 16 * 1024, (ext_id, len(icon))
+        icon = icon_png(icon_size, shape, extension_hue(index))
+        assert len(icon) <= MAX_ICON_BYTES, (ext_id, len(icon))
         manifest = {"id": ext_id, "version": version, "name": name, "main": "main.lua", "icon": "icon.png",
                     "permissions": perms}
         files = {
@@ -317,7 +336,7 @@ def build(out_dir: Path):
         for tex_name, w, h in textures:
             files[f"textures/{tex_name}.png"] = noise_png(w, h, rng)
         total = sum(len(b) for b in files.values())
-        assert total < MAX_ZIP - 64 * 1024, (ext_id, total)  # deflate cannot shrink noise: zip ~= raw size
+        assert total < MAX_ZIP - ZIP_OVERHEAD_MARGIN, (ext_id, total)  # deflate cannot shrink noise: zip ~= raw size
         for path, data in files.items():
             p = target / path
             p.parent.mkdir(parents=True, exist_ok=True)

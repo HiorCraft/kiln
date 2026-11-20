@@ -12,7 +12,8 @@ class FactoryDemo(plugin: JavaPlugin) : LuaDemo(plugin, "fabrik") {
 
     init {
         request("set") { player, msg -> control.set(player.uniqueId, msg, System.currentTimeMillis()) }
-        plugin.server.scheduler.runTaskTimer(plugin, Runnable { tick() }, 20L, 20L)
+        // the simulation runs in steps of one second (FactoryControl.tick)
+        plugin.server.scheduler.runTaskTimer(plugin, Runnable { tick() }, TICKS_PER_SECOND, TICKS_PER_SECOND)
     }
 
     private fun tick() {
@@ -25,4 +26,8 @@ class FactoryDemo(plugin: JavaPlugin) : LuaDemo(plugin, "fabrik") {
     override fun state(player: Player): Any = control.state(player.uniqueId)
 
     override fun forget(player: UUID) = control.forget(player)
+
+    private companion object {
+        const val TICKS_PER_SECOND = 20L
+    }
 }

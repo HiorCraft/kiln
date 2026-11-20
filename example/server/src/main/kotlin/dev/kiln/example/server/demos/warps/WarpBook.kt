@@ -16,48 +16,6 @@ import java.util.UUID
  * C->S  delete   {req, warp}           own warps only
  */
 
-/** Where a warp leads; [surface] = y is taken from the highest block at x/z when teleporting. */
-data class WarpLocation(val world: String, val x: Double, val y: Double, val z: Double, val yaw: Float = 0f, val pitch: Float = 0f, val surface: Boolean = false)
-
-data class Warp(
-    val id: String,
-    val name: String,
-    val icon: String,
-    val description: String,
-    val location: WarpLocation,
-    /** `null` for public warps. */
-    val owner: UUID? = null,
-)
-
-data class IconDto(val id: String, val label: String)
-
-data class WarpDto(
-    val id: String,
-    val name: String,
-    val icon: String,
-    val description: String,
-    val world: String,
-    val x: Int,
-    val y: Int,
-    val z: Int,
-    val own: Boolean,
-    val favorite: Boolean,
-)
-
-data class WarpState(
-    val cooldownMillis: Long,
-    /** Remaining cooldown when the state was built (0 = ready). */
-    val cooldownLeft: Long,
-    val maxOwn: Int,
-    val nameMin: Int,
-    val nameMax: Int,
-    val icons: List<IconDto>,
-    val warps: List<WarpDto>,
-)
-
-/** Result of `teleport`: the service teleports to [location] (only set when allowed). */
-data class TeleportOutcome(val result: DemoResult, val location: WarpLocation? = null, val warp: Warp? = null)
-
 class WarpBook(
     private val publicWarps: List<Warp>,
     val cooldownMillis: Long = 10_000,
@@ -88,9 +46,9 @@ class WarpBook(
     fun teleport(player: UUID, msg: JsonObject?, now: Long): TeleportOutcome {
         var outcome: TeleportOutcome? = null
         val result = guard.run(player, msg, "teleport", now) { req ->
-            val warp = warp(player, msg) ?: return@run DemoResult.fail(req, "teleport", "Diesen Warp gibt es nicht (mehr).")
+            val warp = warp(player, msg) ?: return@run DemoResult.fail(req, "teleport", UNKNOWN_WARP)
             val left = cooldownLeft(player, now)
-            if (left > 0) return@run DemoResult.fail(req, "teleport", "Noch ${(left + 999) / 1000} s Abklingzeit.")
+            if (left > 0) return@run DemoResult.fail(req, "teleport", "Noch ${ceilSeconds(left)} s Abklingzeit.")
             lastTeleport[player] = now
             val ok = DemoResult.ok(req, "teleport", "Teleportiert: ${warp.name}")
             outcome = TeleportOutcome(ok, warp.location, warp)
@@ -105,7 +63,7 @@ class WarpBook(
     }
 
     fun favorite(player: UUID, msg: JsonObject?, now: Long): DemoResult = guard.run(player, msg, "favorite", now) { req ->
-        val warp = warp(player, msg) ?: return@run DemoResult.fail(req, "favorite", "Diesen Warp gibt es nicht (mehr).")
+        val warp = warp(player, msg) ?: return@run DemoResult.fail(req, "favorite", UNKNOWN_WARP)
         val on = RequestFields.boolean(msg, "on") ?: return@run DemoResult.fail(req, "favorite", DemoResult.INVALID)
         val set = favorites.getOrPut(player) { HashSet() }
         if (on) set += warp.id else set -= warp.id
@@ -127,12 +85,14 @@ class WarpBook(
     }
 
     fun delete(player: UUID, msg: JsonObject?, now: Long): DemoResult = guard.run(player, msg, "delete", now) { req ->
-        val warp = warp(player, msg) ?: return@run DemoResult.fail(req, "delete", "Diesen Warp gibt es nicht (mehr).")
+        val warp = warp(player, msg) ?: return@run DemoResult.fail(req, "delete", UNKNOWN_WARP)
         if (warp.owner != player) return@run DemoResult.fail(req, "delete", "Öffentliche Warps kannst du nicht löschen.")
         own[player]?.remove(warp)
         favorites[player]?.remove(warp.id)
         DemoResult.ok(req, "delete", "Warp gelöscht: ${warp.name}")
     }
+
+    private fun ceilSeconds(millis: Long): Long = (millis + 999) / 1000
 
     fun forget(player: UUID) {
         own.remove(player)
@@ -145,6 +105,7 @@ class WarpBook(
         const val MAX_OWN = 8
         const val NAME_MIN = 3
         const val NAME_MAX = 24
+        private const val UNKNOWN_WARP = "Diesen Warp gibt es nicht (mehr)."
         private val NAME_CHARS = Regex("[A-Za-z0-9ÄÖÜäöüß _-]+")
 
         val ICONS = listOf(

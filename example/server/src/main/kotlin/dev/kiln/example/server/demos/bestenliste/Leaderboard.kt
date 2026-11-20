@@ -15,55 +15,14 @@ import kotlin.random.Random
  * C->S  query {req, category, period}   selects what the state shows (validated against the enums)
  */
 
-enum class StatCategory(val label: String, val unit: String) {
-    BLOCKS("Abgebaute Blöcke", "Blöcke"),
-    KILLS("Mob-Kills", "Kills"),
-    PLAYTIME("Spielzeit", "Min."),
-    DISTANCE("Laufstrecke", "m"),
-    DEATHS("Tode", "Tode"),
-}
-
-enum class StatPeriod(val label: String) {
-    DAY("Heute"),
-    WEEK("Woche"),
-    ALL("Gesamt"),
-}
-
-data class LabelDto(val id: String, val label: String, val unit: String? = null)
-
-data class RowDto(
-    val rank: Int,
-    val name: String,
-    val value: Long,
-    /** Gain since the previous snapshot (trend column). */
-    val gain: Long,
-    val self: Boolean,
-)
-
-data class BoardState(
-    val categories: List<LabelDto>,
-    val periods: List<LabelDto>,
-    val category: String,
-    val period: String,
-    /** Top [Leaderboard.TOP] rows, plus the player's own row (also when it is not in the top). */
-    val rows: List<RowDto>,
-    val players: Int,
-)
-
 class Leaderboard(seed: Long = 42, private val guard: RequestGuard = RequestGuard()) {
-    private class Entry(val name: String) {
-        val values = Array(StatCategory.entries.size) { LongArray(StatPeriod.entries.size) }
-        val snapshot = Array(StatCategory.entries.size) { LongArray(StatPeriod.entries.size) }
-        fun get(c: StatCategory, p: StatPeriod) = values[c.ordinal][p.ordinal]
-    }
-
     private val random = Random(seed)
-    private val entries = LinkedHashMap<String, Entry>()
+    private val entries = LinkedHashMap<String, LeaderboardEntry>()
     private val selection = HashMap<UUID, Pair<StatCategory, StatPeriod>>()
 
     init {
         for (name in DEMO_PLAYERS) {
-            val e = Entry(name)
+            val e = LeaderboardEntry(name)
             for (c in StatCategory.entries) {
                 val total = when (c) {
                     StatCategory.BLOCKS -> random.nextLong(500, 60_000)
@@ -83,7 +42,7 @@ class Leaderboard(seed: Long = 42, private val guard: RequestGuard = RequestGuar
         snapshot()
     }
 
-    private fun entry(name: String) = entries.getOrPut(name) { Entry(name) }
+    private fun entry(name: String) = entries.getOrPut(name) { LeaderboardEntry(name) }
 
     /** Adds [amount] to every period of [category] (real players' events). */
     fun record(name: String, category: StatCategory, amount: Long) {
@@ -124,7 +83,7 @@ class Leaderboard(seed: Long = 42, private val guard: RequestGuard = RequestGuar
     fun state(player: UUID, name: String): BoardState {
         val (c, p) = selection(player)
         entry(name)
-        val sorted = entries.values.sortedWith(compareByDescending<Entry> { it.get(c, p) }.thenBy { it.name.lowercase() })
+        val sorted = entries.values.sortedWith(compareByDescending<LeaderboardEntry> { it.get(c, p) }.thenBy { it.name.lowercase() })
         val rows = ArrayList<RowDto>()
         var rank = 0
         var previous = Long.MIN_VALUE

@@ -2,29 +2,6 @@ package dev.kiln.example.server.shop
 
 import java.util.UUID
 
-/** Why a purchase is not possible; [message] is shown in the dialog. */
-sealed class BuyError(val message: String) {
-    data object OfferGone : BuyError("Das Angebot ist nicht mehr verfügbar.")
-    data object OwnOffer : BuyError("Das ist dein eigenes Angebot.")
-    data class InvalidAmount(val max: Int) : BuyError("Bitte eine Menge von 1 bis ${ShopFormat.number(max.toLong())} wählen.")
-    data class NotEnoughStock(val available: Int) : BuyError("Nur noch ${ShopFormat.number(available.toLong())} Stück verfügbar.")
-    data class InsufficientFunds(val missing: Long) : BuyError("Nicht genug Geld (es fehlen ${ShopFormat.money(missing)}).")
-    data class NoSpace(val space: Long) : BuyError(
-        if (space <= 0) "Dein Inventar ist voll." else "Dein Inventar hat nur Platz für ${ShopFormat.number(space)} Stück.",
-    )
-    data class PriceChanged(val newPrice: Long) : BuyError("Der Preis wurde geändert (jetzt ${ShopFormat.money(newPrice)}/Stk.).")
-}
-
-sealed interface BuyResult<out I> {
-    data class Success<I>(val offer: Offer<I>, val amount: Int, val total: Long, val remaining: Int) : BuyResult<I>
-    data class Failure(val error: BuyError) : BuyResult<Nothing>
-}
-
-/** Validated listing form: either all [errors] per field (`amount`, `price`, `item`, `category`) or the parsed values. */
-data class ListingValidation(val errors: Map<String, String>, val amount: Int?, val price: Long?) {
-    val ok: Boolean get() = errors.isEmpty()
-}
-
 /**
  * In-memory market: offers plus a demo balance per player. Not thread-safe: all calls happen on the server main
  * thread (Paper event/command/screen handlers), which also serializes concurrent purchases.
@@ -118,41 +95,5 @@ class Market<I>(val startBalance: Long = START_BALANCE) {
         const val MAX_PRICE = 1_000_000L
 
         fun totalPrice(pricePerUnit: Long, amount: Int): Long = Math.multiplyExact(pricePerUnit, amount.toLong())
-    }
-}
-
-object ShopValidation {
-    /** Validates the sell form; [available] is how many of the chosen item the player has. */
-    fun listing(hasItem: Boolean, available: Int, amountText: String, priceText: String, category: Category?): ListingValidation {
-        val errors = LinkedHashMap<String, String>()
-        if (!hasItem) errors["item"] = "Wähle links ein Item aus deinem Inventar."
-        else if (available <= 0) errors["item"] = "Das Item ist nicht mehr in deinem Inventar."
-
-        val amount = amountText.trim().toIntOrNull()
-        when {
-            amountText.isBlank() -> errors["amount"] = "Menge fehlt."
-            amount == null || amount < 1 -> errors["amount"] = "Menge muss eine ganze Zahl ab 1 sein."
-            hasItem && available > 0 && amount > available -> errors["amount"] = "Du hast nur ${ShopFormat.number(available.toLong())} Stück."
-        }
-
-        val price = priceText.trim().toLongOrNull()
-        when {
-            priceText.isBlank() -> errors["price"] = "Preis fehlt."
-            price == null || price < 1 || price > Market.MAX_PRICE ->
-                errors["price"] = "Preis muss zwischen 1 und ${ShopFormat.number(Market.MAX_PRICE)} liegen."
-        }
-
-        if (category == null || category == Category.ALL) errors["category"] = "Kategorie wählen."
-        return ListingValidation(errors, amount?.takeIf { "amount" !in errors }, price?.takeIf { "price" !in errors })
-    }
-
-    /** Validates a new unit price; `null` = ok. */
-    fun price(text: String): String? {
-        val price = text.trim().toLongOrNull()
-        return when {
-            text.isBlank() -> "Preis fehlt."
-            price == null || price < 1 || price > Market.MAX_PRICE -> "Preis muss zwischen 1 und ${ShopFormat.number(Market.MAX_PRICE)} liegen."
-            else -> null
-        }
     }
 }

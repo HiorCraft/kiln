@@ -15,88 +15,6 @@ import kotlin.math.min
  * C->S  set {req, machine, running?, priority?, recipe?}   at least one of the optional fields
  */
 
-data class Recipe(val id: String, val label: String, val input: String, val output: String, val seconds: Int, val power: Int)
-
-enum class MachineType(val label: String, val icon: String, val recipes: List<Recipe>) {
-    SMELTER(
-        "Hochofen", "minecraft:blast_furnace",
-        listOf(
-            Recipe("iron", "Eisenbarren", "minecraft:raw_iron", "minecraft:iron_ingot", 4, 30),
-            Recipe("gold", "Goldbarren", "minecraft:raw_gold", "minecraft:gold_ingot", 6, 40),
-            Recipe("glass", "Glas", "minecraft:sand", "minecraft:glass", 2, 20),
-        ),
-    ),
-    CRUSHER(
-        "Zerkleinerer", "minecraft:grindstone",
-        listOf(
-            Recipe("gravel", "Kies", "minecraft:cobblestone", "minecraft:gravel", 3, 25),
-            Recipe("sand", "Sand", "minecraft:gravel", "minecraft:sand", 3, 25),
-        ),
-    ),
-    ASSEMBLER(
-        "Montageband", "minecraft:crafter",
-        listOf(
-            Recipe("rail", "Schienen", "minecraft:iron_ingot", "minecraft:rail", 5, 35),
-            Recipe("piston", "Kolben", "minecraft:iron_ingot", "minecraft:piston", 8, 45),
-            Recipe("hopper", "Trichter", "minecraft:iron_ingot", "minecraft:hopper", 10, 50),
-        ),
-    ),
-    SAWMILL(
-        "Sägewerk", "minecraft:stonecutter",
-        listOf(
-            Recipe("planks", "Bretter", "minecraft:oak_log", "minecraft:oak_planks", 1, 10),
-            Recipe("sticks", "Stöcke", "minecraft:oak_planks", "minecraft:stick", 1, 8),
-        ),
-    ),
-    ;
-
-    fun recipe(id: String): Recipe? = recipes.find { it.id == id }
-}
-
-enum class MachineStatus(val label: String) {
-    RUNNING("Läuft"),
-    LOW_POWER("Wenig Strom"),
-    NO_POWER("Kein Strom"),
-    OFF("Aus"),
-}
-
-class Machine(val id: Int, val name: String, val type: MachineType, var recipe: Recipe, var running: Boolean, var priority: Int) {
-    var progress = 0.0
-    var power = 0.0
-    var produced = 0L
-    var status = MachineStatus.OFF
-}
-
-data class RecipeDto(val id: String, val label: String, val input: String, val output: String, val seconds: Int, val power: Int)
-
-data class MachineTypeDto(val id: String, val label: String, val icon: String, val recipes: List<RecipeDto>)
-
-data class MachineDto(
-    val id: Int,
-    val name: String,
-    val type: String,
-    val running: Boolean,
-    val priority: Int,
-    val recipe: String,
-    /** 0..1 progress of the current item. */
-    val progress: Double,
-    /** 0..1 share of the needed power the machine gets. */
-    val power: Double,
-    /** Power the machine needs while running. */
-    val demand: Int,
-    val produced: Long,
-    val status: String,
-    val statusLabel: String,
-)
-
-data class FactoryState(
-    val supply: Int,
-    val used: Int,
-    val maxPriority: Int,
-    val types: List<MachineTypeDto>,
-    val machines: List<MachineDto>,
-)
-
 class FactoryControl(val supply: Int = 120, private val guard: RequestGuard = RequestGuard()) {
     private val factories = HashMap<UUID, List<Machine>>()
 
@@ -176,6 +94,12 @@ class FactoryControl(val supply: Int = 120, private val guard: RequestGuard = Re
             null
         }
         if (running == null && priority == null && recipe == null) return@run DemoResult.fail(req, "set", DemoResult.INVALID)
+        val changes = apply(machine, running, priority, recipe)
+        DemoResult.ok(req, "set", "${machine.name}: ${changes.joinToString(", ")}")
+    }
+
+    /** Applies the requested changes (`null` = unchanged) to [machine]; returns them as readable text. */
+    private fun apply(machine: Machine, running: Boolean?, priority: Int?, recipe: Recipe?): List<String> {
         val changes = ArrayList<String>()
         running?.let {
             machine.running = it
@@ -193,7 +117,7 @@ class FactoryControl(val supply: Int = 120, private val guard: RequestGuard = Re
             }
             changes += "Rezept ${it.label}"
         }
-        DemoResult.ok(req, "set", "${machine.name}: ${changes.joinToString(", ")}")
+        return changes
     }
 
     fun forget(player: UUID) {

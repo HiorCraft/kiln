@@ -4,12 +4,6 @@ import dev.kiln.server.api.screen.ScreenHandle
 import org.bukkit.inventory.ItemStack
 import java.util.UUID
 
-enum class ShopTab(val label: String, val hint: String) {
-    MARKET("Markt", "Angebote aller Spieler durchsuchen und kaufen"),
-    SELL("Verkaufen", "Items aus deinem Inventar anbieten"),
-    MY_OFFERS("Meine Angebote", "Eigene Angebote verwalten"),
-}
-
 /** UI state of one player's shop; the screen content is a pure function of this plus the market. */
 class ShopSession(val playerId: UUID) {
     var handle: ScreenHandle? = null
@@ -50,6 +44,12 @@ class ShopSession(val playerId: UUID) {
 
     /** Cheap fingerprint of the inventory at the last render (to refresh the sell tab when it changes). */
     var inventorySignature = 0
+
+    /** Shows [error] in the buy dialog (`null` clears it); a changed price becomes the one the player has seen. */
+    fun showBuyError(error: BuyError?) {
+        buyError = error?.message
+        if (error is BuyError.PriceChanged) buyPriceSeen = error.newPrice
+    }
 
     fun closeBuyDialog() {
         buyOfferId = null

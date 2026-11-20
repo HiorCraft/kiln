@@ -21,10 +21,20 @@ NS = "kiln_content"
 ROOT = Path(__file__).resolve().parent.parent / "example" / "server" / "src" / "main" / "resources" / "extensions" / NS / "assets" / NS
 
 
-def write_json(path: str, data) -> None:
+def output(path: str) -> Path:
+    """Path of an asset below ROOT; its directory is created."""
     file = ROOT / path
     file.parent.mkdir(parents=True, exist_ok=True)
-    file.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return file
+
+
+def write_json(path: str, data) -> None:
+    output(path).write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def item_definition(name: str) -> None:
+    """items/<name>.json pointing at the model models/item/<name>.json."""
+    write_json(f"items/{name}.json", {"model": {"type": "minecraft:model", "model": f"{NS}:item/{name}"}})
 
 
 def ruby_texture() -> None:
@@ -46,9 +56,7 @@ def ruby_texture() -> None:
                 px[x, y] = (160, 14, 40, 255)
     for x, y in [(5, 5), (6, 4), (5, 6), (9, 7)]:
         px[x, y] = (255, 214, 222, 255)
-    out = ROOT / "textures/item/ruby.png"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    img.save(out)
+    img.save(output("textures/item/ruby.png"))
 
 
 def rune_font() -> None:
@@ -70,9 +78,7 @@ def rune_font() -> None:
                 y = gy + y0 + step
                 if gx <= x < gx + 5 and y < gy + 7:
                     px[x, y] = (255, 255, 255, 255)
-    out = ROOT / "textures/font/runes.png"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    img.save(out)
+    img.save(output("textures/font/runes.png"))
     rows = [letters[i:i + 8].ljust(8, "\u0000") for i in range(0, 32, 8)]
     write_json("font/runes.json", {
         "providers": [
@@ -90,14 +96,12 @@ def chime() -> None:
         tone += amp * np.sin(2 * math.pi * freq * t) * np.exp(-decay * t)
     attack = np.minimum(1.0, t / 0.004)
     tone *= attack * 0.6
-    out = ROOT / "sounds/ruby_chime.ogg"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    sf.write(out, tone.astype(np.float32), rate, format="OGG", subtype="VORBIS")
+    sf.write(output("sounds/ruby_chime.ogg"), tone.astype(np.float32), rate, format="OGG", subtype="VORBIS")
     write_json("sounds.json", {"ruby_chime": {"subtitle": f"{NS}.subtitle.ruby_chime", "sounds": [f"{NS}:ruby_chime"]}})
 
 
 def models() -> None:
-    write_json("items/ruby.json", {"model": {"type": "minecraft:model", "model": f"{NS}:item/ruby"}})
+    item_definition("ruby")
     write_json("models/item/ruby.json", {"parent": "minecraft:item/generated", "textures": {"layer0": f"{NS}:item/ruby"}})
 
 
@@ -156,12 +160,12 @@ def furniture_models() -> None:
     bench = bench_legs + [cube([-8, 6, 2], [24, 8, 14])]
     for name, elements in [("chair", chair), ("table", table), ("bench", bench)]:
         write_json(f"models/item/{name}.json", {"textures": wood, "elements": elements})
-        write_json(f"items/{name}.json", {"model": {"type": "minecraft:model", "model": f"{NS}:item/{name}"}})
+        item_definition(name)
 
 
 def golem() -> None:
     """Stone golem for the custom entity demo: Bedrock geometry (front = -z), animations, 128x64 texture."""
-    def cube(origin, size, uv, mirror=False):
+    def geo_cube(origin, size, uv, mirror=False):
         c = {"origin": origin, "size": size, "uv": uv}
         if mirror:
             c["mirror"] = True
@@ -169,16 +173,16 @@ def golem() -> None:
 
     bones = [
         {"name": "root", "pivot": [0, 0, 0]},
-        {"name": "body", "parent": "root", "pivot": [0, 20, 0], "cubes": [cube([-9, 20, -6], [18, 16, 12], [0, 0])]},
+        {"name": "body", "parent": "root", "pivot": [0, 20, 0], "cubes": [geo_cube([-9, 20, -6], [18, 16, 12], [0, 0])]},
         {"name": "head", "parent": "body", "pivot": [0, 36, -2], "cubes": [
-            cube([-5, 36, -8], [10, 10, 10], [0, 28]),
-            cube([-4, 40, -9], [3, 2, 1], [100, 0]),
-            cube([1, 40, -9], [3, 2, 1], [100, 0]),
+            geo_cube([-5, 36, -8], [10, 10, 10], [0, 28]),
+            geo_cube([-4, 40, -9], [3, 2, 1], [100, 0]),
+            geo_cube([1, 40, -9], [3, 2, 1], [100, 0]),
         ]},
-        {"name": "arm_left", "parent": "body", "pivot": [11, 34, 0], "cubes": [cube([9, 14, -3], [6, 22, 6], [60, 0])]},
-        {"name": "arm_right", "parent": "body", "pivot": [-11, 34, 0], "cubes": [cube([-15, 14, -3], [6, 22, 6], [60, 0], True)]},
-        {"name": "leg_left", "parent": "root", "pivot": [5, 20, 0], "cubes": [cube([2, 0, -3], [6, 20, 6], [60, 28])]},
-        {"name": "leg_right", "parent": "root", "pivot": [-5, 20, 0], "cubes": [cube([-8, 0, -3], [6, 20, 6], [60, 28], True)]},
+        {"name": "arm_left", "parent": "body", "pivot": [11, 34, 0], "cubes": [geo_cube([9, 14, -3], [6, 22, 6], [60, 0])]},
+        {"name": "arm_right", "parent": "body", "pivot": [-11, 34, 0], "cubes": [geo_cube([-15, 14, -3], [6, 22, 6], [60, 0], True)]},
+        {"name": "leg_left", "parent": "root", "pivot": [5, 20, 0], "cubes": [geo_cube([2, 0, -3], [6, 20, 6], [60, 28])]},
+        {"name": "leg_right", "parent": "root", "pivot": [-5, 20, 0], "cubes": [geo_cube([-8, 0, -3], [6, 20, 6], [60, 28], True)]},
     ]
     write_json("kiln/entity/golem.geo.json", {
         "format_version": "1.12.0",
@@ -225,9 +229,7 @@ def golem() -> None:
     for y in range(0, 4):
         for x in range(100, 108):
             px[x, y] = (255, 170, 40, 255)  # glowing eyes
-    out = ROOT / "textures/entity/golem.png"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    img.save(out)
+    img.save(output("textures/entity/golem.png"))
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 package dev.kiln.example.server.demos.warps
 
+import com.google.gson.JsonObject
 import dev.kiln.example.server.demos.DemoResult
 import dev.kiln.example.server.demos.LuaDemo
 import org.bukkit.Bukkit
@@ -40,7 +41,7 @@ class WarpDemo(plugin: JavaPlugin) : LuaDemo(plugin, "warps") {
         return WarpLocation(l.world.name, l.x, l.y, l.z, l.yaw, l.pitch)
     }
 
-    private fun teleport(player: Player, msg: com.google.gson.JsonObject): DemoResult {
+    private fun teleport(player: Player, msg: JsonObject): DemoResult {
         val outcome = book.teleport(player.uniqueId, msg, System.currentTimeMillis())
         val target = outcome.location ?: return outcome.result
         val world = Bukkit.getWorld(target.world)

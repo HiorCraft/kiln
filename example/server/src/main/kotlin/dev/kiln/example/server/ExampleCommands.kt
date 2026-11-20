@@ -5,6 +5,7 @@ import io.papermc.paper.command.brigadier.CommandSourceStack
 import org.bukkit.command.Command
 import org.bukkit.command.CommandSender
 import org.bukkit.command.TabExecutor
+import org.bukkit.entity.Player
 import org.bukkit.plugin.java.JavaPlugin
 
 /**
@@ -39,4 +40,15 @@ internal object ExampleCommands {
                 executor.onTabComplete(source.sender, command, label, args) ?: emptyList()
         })
     }
+
+    /** [sender] as player; anyone else is told that the command is for players only and gets `null`. */
+    fun requirePlayer(sender: CommandSender): Player? {
+        if (sender is Player) return sender
+        sender.sendMessage("Nur für Spieler.")
+        return null
+    }
+
+    /** Completion of the first argument: the [options] starting with what was typed (case-insensitive). */
+    fun completeFirstArgument(args: Array<out String>, options: List<String>): List<String> =
+        if (args.size == 1) options.filter { it.startsWith(args[0].lowercase()) } else emptyList()
 }

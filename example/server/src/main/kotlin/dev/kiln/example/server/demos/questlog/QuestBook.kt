@@ -14,59 +14,10 @@ import java.util.UUID
  * C->S  abandon {req, quest}     active -> available, progress is lost
  */
 
-enum class ObjectiveKind { BREAK, KILL }
-
-/** [targets]: namespaced ids; an entry `*_log` matches every id ending in `_log`. */
-data class Objective(val kind: ObjectiveKind, val targets: List<String>, val count: Int, val label: String) {
-    fun matches(kind: ObjectiveKind, id: String): Boolean =
-        kind == this.kind && targets.any { t -> if (t.startsWith("*")) id.endsWith(t.substring(1)) else id == t }
-}
-
-data class Reward(val item: String, val count: Int)
-
-data class Quest(
-    val id: String,
-    val title: String,
-    val category: String,
-    val description: String,
-    val objectives: List<Objective>,
-    val rewards: List<Reward>,
-    val xp: Int,
-)
-
-enum class QuestStatus { AVAILABLE, ACTIVE, COMPLETED }
-
-data class ObjectiveDto(val label: String, val have: Int, val need: Int)
-
-data class RewardDto(
-    /** `ExtensionItems.encode` of the reward item; `null` if it could not be encoded (client shows the id). */
-    val item: String?,
-    val key: String,
-    val count: Int,
-)
-
-data class QuestDto(
-    val id: String,
-    val title: String,
-    val category: String,
-    val description: String,
-    val status: String,
-    val objectives: List<ObjectiveDto>,
-    val rewards: List<RewardDto>,
-    val xp: Int,
-)
-
-data class QuestState(val maxActive: Int, val quests: List<QuestDto>)
-
-/** A quest that was just completed by an event: the service gives [Quest.rewards] and shows a toast. */
-data class Completion(val quest: Quest)
-
 class QuestBook(val quests: List<Quest> = CATALOG, private val guard: RequestGuard = RequestGuard()) {
-    private class Progress(var status: QuestStatus = QuestStatus.AVAILABLE, var counts: IntArray = IntArray(0))
+    private val players = HashMap<UUID, HashMap<String, QuestProgress>>()
 
-    private val players = HashMap<UUID, HashMap<String, Progress>>()
-
-    private fun progress(player: UUID, quest: Quest): Progress = players.getOrPut(player) { HashMap() }.getOrPut(quest.id) { Progress() }
+    private fun progress(player: UUID, quest: Quest): QuestProgress = players.getOrPut(player) { HashMap() }.getOrPut(quest.id) { QuestProgress() }
 
     fun status(player: UUID, questId: String): QuestStatus? = quests.find { it.id == questId }?.let { progress(player, it).status }
 
@@ -98,7 +49,7 @@ class QuestBook(val quests: List<Quest> = CATALOG, private val guard: RequestGua
     private fun quest(msg: JsonObject?): Quest? = RequestFields.string(msg, "quest", 32)?.let { id -> quests.find { it.id == id } }
 
     fun accept(player: UUID, msg: JsonObject?, now: Long): DemoResult = guard.run(player, msg, "accept", now) { req ->
-        val quest = quest(msg) ?: return@run DemoResult.fail(req, "accept", "Diese Quest gibt es nicht.")
+        val quest = quest(msg) ?: return@run DemoResult.fail(req, "accept", UNKNOWN_QUEST)
         val p = progress(player, quest)
         when (p.status) {
             QuestStatus.ACTIVE -> return@run DemoResult.fail(req, "accept", "Die Quest ist schon aktiv.")
@@ -114,7 +65,7 @@ class QuestBook(val quests: List<Quest> = CATALOG, private val guard: RequestGua
     }
 
     fun abandon(player: UUID, msg: JsonObject?, now: Long): DemoResult = guard.run(player, msg, "abandon", now) { req ->
-        val quest = quest(msg) ?: return@run DemoResult.fail(req, "abandon", "Diese Quest gibt es nicht.")
+        val quest = quest(msg) ?: return@run DemoResult.fail(req, "abandon", UNKNOWN_QUEST)
         val p = progress(player, quest)
         if (p.status != QuestStatus.ACTIVE) return@run DemoResult.fail(req, "abandon", "Die Quest ist nicht aktiv.")
         p.status = QuestStatus.AVAILABLE
@@ -139,10 +90,7 @@ class QuestBook(val quests: List<Quest> = CATALOG, private val guard: RequestGua
                     changed = true
                 }
             }
-            if (quest.objectives.indices.all { p.counts[it] >= quest.objectives[it].count }) {
-                p.status = QuestStatus.COMPLETED
-                done += Completion(quest)
-            }
+            completeIfDone(quest, p, done)
         }
         return changed to done
     }
@@ -155,12 +103,16 @@ class QuestBook(val quests: List<Quest> = CATALOG, private val guard: RequestGua
             val p = map[quest.id]?.takeIf { it.status == QuestStatus.ACTIVE } ?: continue
             val i = quest.objectives.indices.firstOrNull { p.counts[it] < quest.objectives[it].count } ?: continue
             p.counts[i] = minOf(quest.objectives[i].count, p.counts[i] + amount)
-            if (quest.objectives.indices.all { p.counts[it] >= quest.objectives[it].count }) {
-                p.status = QuestStatus.COMPLETED
-                done += Completion(quest)
-            }
+            completeIfDone(quest, p, done)
         }
         return done
+    }
+
+    /** Marks [quest] completed (and adds it to [done]) once every objective has reached its count. */
+    private fun completeIfDone(quest: Quest, p: QuestProgress, done: MutableList<Completion>) {
+        if (quest.objectives.indices.any { p.counts[it] < quest.objectives[it].count }) return
+        p.status = QuestStatus.COMPLETED
+        done += Completion(quest)
     }
 
     fun forget(player: UUID) {
@@ -170,6 +122,7 @@ class QuestBook(val quests: List<Quest> = CATALOG, private val guard: RequestGua
 
     companion object {
         const val MAX_ACTIVE = 3
+        private const val UNKNOWN_QUEST = "Diese Quest gibt es nicht."
 
         val CATALOG = listOf(
             Quest(

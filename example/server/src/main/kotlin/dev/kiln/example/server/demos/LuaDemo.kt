@@ -5,8 +5,7 @@ import dev.kiln.server.api.extension.Extension
 import dev.kiln.server.api.extension.ExtensionChannel
 import dev.kiln.server.api.extension.channel
 import dev.kiln.server.api.registerExtension
-import dev.kiln.example.server.shop.lua.RequestFields
-import dev.kiln.example.server.shop.lua.RequestRateLimiter
+import dev.kiln.example.server.ExampleCommands
 import org.bukkit.Bukkit
 import org.bukkit.command.Command
 import org.bukkit.command.CommandSender
@@ -30,37 +29,6 @@ import java.util.logging.Level
  * C->S  <action> {req, ...}   requests, validated field by field (RequestFields), rate limited (RequestGuard)
  * S->C  result  DemoResult    answer to a request with the same `req`
  */
-
-/** Answer to a request. [fields] maps form fields to error messages (shown next to the field). */
-data class DemoResult(
-    val req: Long,
-    val action: String,
-    val ok: Boolean,
-    val message: String? = null,
-    val error: String? = null,
-    val fields: Map<String, String>? = null,
-) {
-    companion object {
-        const val INVALID = "Ungültige Anfrage."
-        const val TOO_MANY = "Zu viele Anfragen – bitte kurz warten."
-
-        fun ok(req: Long, action: String, message: String? = null) = DemoResult(req, action, ok = true, message = message)
-
-        fun fail(req: Long, action: String, error: String, fields: Map<String, String>? = null) =
-            DemoResult(req, action, ok = false, error = error, fields = fields)
-    }
-}
-
-/** Rate limit (token bucket like the shop: 6 at once, then 4/s per player) and request id for every request. */
-class RequestGuard(private val limiter: RequestRateLimiter = RequestRateLimiter()) {
-    fun run(player: UUID, msg: JsonObject?, action: String, now: Long, body: (req: Long) -> DemoResult): DemoResult {
-        val req = RequestFields.req(msg)
-        if (!limiter.tryAcquire(player, now)) return DemoResult.fail(req, action, DemoResult.TOO_MANY)
-        return body(req)
-    }
-
-    fun forget(player: UUID) = limiter.forget(player)
-}
 
 /**
  * Bukkit side of a demo: registers the extension [id] from this jar, tracks which players have the screen open,
@@ -128,10 +96,7 @@ abstract class LuaDemo(protected val plugin: JavaPlugin, id: String) : Listener,
     }
 
     override fun onCommand(sender: CommandSender, command: Command, label: String, args: Array<out String>): Boolean {
-        val player = sender as? Player ?: run {
-            sender.sendMessage("Nur für Spieler.")
-            return true
-        }
+        val player = ExampleCommands.requirePlayer(sender) ?: return true
         command(player, args.firstOrNull()?.lowercase())
         return true
     }
@@ -144,7 +109,7 @@ abstract class LuaDemo(protected val plugin: JavaPlugin, id: String) : Listener,
     protected open fun completions(): List<String> = emptyList()
 
     override fun onTabComplete(sender: CommandSender, command: Command, label: String, args: Array<out String>): List<String> =
-        if (args.size == 1) completions().filter { it.startsWith(args[0].lowercase()) } else emptyList()
+        ExampleCommands.completeFirstArgument(args, completions())
 
     @EventHandler
     fun onDemoQuit(event: PlayerQuitEvent) {
