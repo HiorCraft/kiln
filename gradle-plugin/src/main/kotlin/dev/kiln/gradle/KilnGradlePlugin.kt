@@ -73,13 +73,17 @@ class KilnGradlePlugin : Plugin<Project> {
                 }
             }
         }
+
+        ClientRun.register(project, kiln, versions)
     }
 
-    /** Resolvable configuration with one default dependency, left empty while [overridden] (a local jar is used). */
-    internal fun artifactConfiguration(project: Project, name: String, overridden: () -> Boolean, notation: () -> String): Configuration =
-        project.configurations.create(name) {
-            isCanBeConsumed = false
-            isTransitive = false
-            defaultDependencies { if (!overridden()) add(project.dependencies.create(notation())) }
-        }
+    companion object {
+        /** Resolvable configuration with one default dependency, left empty while [overridden] (a local jar is used). */
+        internal fun artifactConfiguration(project: Project, name: String, overridden: () -> Boolean, notation: () -> String): Configuration =
+            project.configurations.create(name) {
+                isCanBeConsumed = false
+                isTransitive = false
+                defaultDependencies { if (!overridden()) add(project.dependencies.create(notation())) }
+            }
+    }
 }

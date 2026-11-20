@@ -46,6 +46,17 @@ class KilnGradlePluginTest {
     }
 
     @Test
+    fun runClientIsWiredToGeneratedProject() {
+        project("kiln { clientJar.set(file(\"client.jar\")) }")
+        dir.resolve("client.jar").writeText("")
+        run("prepareKilnClient")
+        val script = dir.resolve("build/kiln/client/build.gradle.kts")
+        assertTrue(script.isFile)
+        assertTrue(script.readText().contains("client.jar"), script.readText())
+        assertTrue(dir.resolve("build/kiln/client/settings.gradle.kts").isFile)
+    }
+
+    @Test
     fun runServerUsesConfiguredServerJar() {
         project(
             """
