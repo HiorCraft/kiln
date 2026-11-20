@@ -1,0 +1,19 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "dev.kiln.client.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "ClientCommonPacketListenerAccessor",
+    "ClientLanguageMixin",
+    "KeyMappingAccessor",
+    "KeyMappingCategoryAccessor",
+    "OptionsAccessor",
+    "OptionsMixin",
+    "OptionsScreenMixin",
+    "PauseScreenMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

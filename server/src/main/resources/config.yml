@@ -1,0 +1,20 @@
+# Log every dropped / ignored client message (invalid screen events, unknown keybinds, malformed payloads).
+debug: false
+# Maximum number of kiln messages a client may send per second; the excess is dropped.
+rate-limit-per-second: 100
+# Maximum number of Lua extension channel messages a client may send per second; the excess is dropped.
+extension-messages-per-second: 40
+# Configuration phase: players whose client does not send the kiln Hello within this time are disconnected
+# (no runtime installed).
+hello-timeout-seconds: 10
+# Configuration phase: time the player has for the consent screen (manifest -> ExtensionRequest). Nothing is
+# downloaded before consent.
+consent-timeout-seconds: 300
+# Configuration phase: time for downloading and loading all Lua extensions after consent (ExtensionRequest ->
+# ExtensionsReady) before the player is disconnected.
+extensions-timeout-seconds: 60
+# Configuration phase: bandwidth limit per player for streaming Lua extension packages, in KiB/s (0 = unlimited).
+# Chunks (512 KiB) are spread over time on the player's handshake thread, never on the server thread. The time the
+# limit itself needs (requested bytes / rate) is added to extensions-timeout-seconds for that player.
+extension-send-rate-kib-per-second: 0
+# Lua extension packages: plugins/Kiln/extensions/<id>/ or <id>.zip (see docs/lua-extensions.md).

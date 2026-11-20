@@ -1,0 +1,9 @@
+{
+  "id": "shop",
+  "version": "1.0.0",
+  "name": "Marktplatz",
+  "main": "main.lua",
+  "icon": "icon.png",
+  "permissions": ["keybinds", "channels", "toasts", "screens", "inventory"],
+  "dependencies": ["ui_kit"]
+}

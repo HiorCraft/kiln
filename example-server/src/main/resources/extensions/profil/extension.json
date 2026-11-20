@@ -1,0 +1,9 @@
+{
+  "id": "profil",
+  "version": "1.0.0",
+  "name": "Einstellungen & Profil",
+  "main": "main.lua",
+  "icon": "icon.png",
+  "permissions": ["keybinds", "channels", "screens"],
+  "dependencies": [{ "id": "ui_kit", "version": ">=1.1 <2" }]
+}

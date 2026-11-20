@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "kiln",
+  "version": "${version}",
+  "name": "kiln",
+  "description": "Client runtime of kiln: renders server-described GUIs, handles server keybinds and runs sandboxed Lua extensions provided by the server.",
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      {
+        "adapter": "kotlin",
+        "value": "dev.kiln.client.KilnClientMod"
+      }
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.20.1",
+    "minecraft": "~26.3",
+    "fabric-api": "*",
+    "fabric-language-kotlin": "*"
+  },
+  "mixins": [
+    "kiln.mixins.json"
+  ]
+}

@@ -1,0 +1,374 @@
+<title>kiln Lua-Module</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&family=Silkscreen&display=swap">
+<style>
+/* Layout: eine Lesespalte mit Code-Tafeln; links Text, rechts Code, unter 900px gestapelt */
+:root {
+  --bg: #f3f4ef;
+  --surface: #ffffff;
+  --ink: #1d2320;
+  --muted: #5d6862;
+  --line: #d7ddd6;
+  --accent: #3f7d3a;        /* Gras */
+  --accent-ink: #ffffff;
+  --code-bg: #1f2622;
+  --code-ink: #e3ebe4;
+  --c-com: #7f9a87;
+  --c-str: #e3c26b;
+  --c-key: #8fd18a;
+  --c-num: #f09a6b;
+  --c-fn: #8ec5e8;
+  --ok: #3f7d3a;
+  --no: #b2463a;
+  --font-display: "Silkscreen", "IBM Plex Mono", monospace;
+  --font-body: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #141815; --surface: #1b201c; --ink: #e2e8e3; --muted: #9aa69e; --line: #2c342e;
+  --accent: #7cc173; --accent-ink: #10150f; --code-bg: #0e120f; --code-ink: #dfe8e0;
+  --ok: #7cc173; --no: #e07a6c; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #141815; --surface: #1b201c; --ink: #e2e8e3; --muted: #9aa69e; --line: #2c342e;
+  --accent: #7cc173; --accent-ink: #10150f; --code-bg: #0e120f; --code-ink: #dfe8e0;
+  --ok: #7cc173; --no: #e07a6c; color-scheme: dark }
+
+body { background: var(--bg); color: var(--ink); font: 16px/1.6 var(--font-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 40px 64px; }
+.wrap { max-width: 1120px; margin: 0 auto; display: grid; gap: 56px; }
+h1, h2 { font-family: var(--font-display); font-weight: 400; text-wrap: balance; margin: 0; letter-spacing: .02em; }
+h1 { font-size: clamp(28px, 5vw, 44px); line-height: 1.15; }
+h2 { font-size: 22px; }
+h3 { font-size: 15px; margin: 0; font-weight: 600; }
+p { margin: 0; max-width: 65ch; }
+.lede { color: var(--muted); font-size: 18px; }
+.eyebrow { font: 600 12px var(--font-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+header { display: grid; gap: 14px; }
+
+.flow { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.step { background: var(--surface); border: 1px solid var(--line); padding: 14px 16px; display: grid; gap: 6px; }
+.step b { font: 600 12px var(--font-mono); color: var(--accent); letter-spacing: .06em; }
+.step p { font-size: 14px; color: var(--muted); }
+
+section { display: grid; gap: 18px; }
+.pair { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 24px; align-items: start; }
+.pair > div { display: grid; gap: 12px; min-width: 0; }
+@media (max-width: 900px) { .pair { grid-template-columns: minmax(0, 1fr); } }
+
+.code { background: var(--code-bg); color: var(--code-ink); min-width: 0; }
+.code .file { font: 600 12px var(--font-mono); color: var(--c-com); padding: 10px 16px 0; display: flex; justify-content: space-between; gap: 12px; }
+.code pre { margin: 0; padding: 12px 16px 16px; overflow-x: auto; font: 13px/1.55 var(--font-mono); tab-size: 2; }
+.com { color: var(--c-com); font-style: italic; } .str { color: var(--c-str); } .key { color: var(--c-key); }
+.num { color: var(--c-num); } .fn { color: var(--c-fn); }
+
+ul.notes { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 15px; color: var(--muted); max-width: 60ch; }
+code.i { font: 13px var(--font-mono); background: var(--surface); border: 1px solid var(--line); padding: 0 4px; }
+
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.tabs button { font: 600 13px var(--font-mono); background: var(--surface); color: var(--ink); border: 1px solid var(--line); padding: 8px 12px; cursor: pointer; }
+.tabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.tabs button:focus-visible, .scope button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; min-width: 560px; }
+th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 600 12px var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+td code { font: 13px var(--font-mono); }
+tr:last-child td { border-bottom: 0; }
+.yes { color: var(--ok); font-weight: 600; } .no { color: var(--no); font-weight: 600; }
+.limits { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.limit { border-top: 3px solid var(--accent); background: var(--surface); padding: 12px 14px; display: grid; gap: 2px; }
+.limit span { font: 600 20px var(--font-mono); font-variant-numeric: tabular-nums; }
+.limit small { color: var(--muted); font-size: 13px; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Entwurf · kiln Extensions v1</div>
+    <h1>So könnten Lua-Module aussehen</h1>
+    <p class="lede">Ein Server liefert neben Texturen auch kleine Lua-Skripte aus. Der Client lädt sie beim Join, fragt einmal nach Zustimmung und führt sie in einer Sandbox aus. Die Skripte sehen nur die kiln-API, nie Minecraft, Java oder das Dateisystem.</p>
+  </header>
+
+  <section aria-labelledby="flow-h">
+    <h2 id="flow-h">Ablauf beim Join</h2>
+    <div class="flow">
+      <div class="step"><b>1 · Manifest</b><p>Server schickt Liste der Extensions mit Version und SHA-256.</p></div>
+      <div class="step"><b>2 · Cache</b><p>Client lädt nur, was er noch nicht im Cache hat, und prüft den Hash.</p></div>
+      <div class="step"><b>3 · Zustimmung</b><p>Einmal pro Server: Name, Rechte (z. B. HUD, Tasten) anzeigen, Spieler bestätigt.</p></div>
+      <div class="step"><b>4 · Sandbox</b><p>Jede Extension bekommt eine eigene Lua-Umgebung mit Limits für Speicher und Rechenzeit.</p></div>
+      <div class="step"><b>5 · Disconnect</b><p>Beim Verlassen werden alle Umgebungen, Tasten, Widgets und Texturen entfernt.</p></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="manifest-h">
+    <h2 id="manifest-h">Aufbau einer Extension</h2>
+    <div class="pair">
+      <div>
+        <p>Eine Extension ist ein Ordner bzw. ein Zip mit Manifest, Lua-Dateien und Assets. Der Server legt sie unter <code class="i">plugins/Kiln/extensions/</code> ab oder ein Plugin registriert sie per API.</p>
+        <ul class="notes">
+          <li><code class="i">permissions</code> listet, was das Skript darf. Der Client zeigt das bei der Zustimmung an.</li>
+          <li>Texturen landen im eigenen Namespace und gelten nur, solange man auf dem Server ist.</li>
+          <li>Kein <code class="i">require</code> von außen: nur Dateien aus dem eigenen Paket.</li>
+        </ul>
+      </div>
+      <div class="code"><div class="file"><span>factory/extension.json</span></div><pre data-lang="json">{
+  "id": "factory",
+  "version": "1.2.0",
+  "name": "Factory-Anzeigen",
+  "main": "main.lua",
+  "permissions": ["widgets", "keybinds", "hud", "channels"],
+  "assets": ["textures/gauge_bg.png", "textures/icons/*.png"]
+}</pre></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="ex-h">
+    <h2 id="ex-h">Beispiele</h2>
+    <div class="tabs" role="tablist" aria-label="Beispiele">
+      <button role="tab" id="t-widget" aria-selected="true" aria-controls="p-widget">Widget</button>
+      <button role="tab" id="t-keys" aria-selected="false" aria-controls="p-keys">Keybind + Kanal</button>
+      <button role="tab" id="t-hud" aria-selected="false" aria-controls="p-hud">HUD-Overlay</button>
+      <button role="tab" id="t-drag" aria-selected="false" aria-controls="p-drag">Client-Logik im Screen</button>
+    </div>
+
+    <div class="pair" role="tabpanel" id="p-widget" aria-labelledby="t-widget">
+      <div>
+        <h3>Eigenes Widget: Gauge</h3>
+        <p>Ersetzt das Kotlin-Gauge aus dem Example-Client. Der Server nutzt es wie bisher als <code class="i">custom("factory:gauge")</code> und schickt nur <code class="i">value</code> und <code class="i">label</code>.</p>
+        <ul class="notes">
+          <li><code class="i">g</code> ist ein Zeichenkontext mit wenigen Befehlen: Rechteck, Linie, Bogen, Text, Textur, Item.</li>
+          <li>Animation läuft lokal: <code class="i">shown</code> nähert sich dem Server-Wert pro Frame an.</li>
+        </ul>
+      </div>
+      <div class="code"><div class="file"><span>factory/main.lua</span><span>widgets</span></div><pre data-lang="lua">local ui = kiln.ui
+
+ui.widget("factory:gauge", {
+  -- Zustand pro Widget-Instanz, bleibt über UpdateScreen erhalten
+  init = function(self)
+    self.shown = 0
+  end,
+
+  render = function(self, g, w)
+    local target = w.props.value or 0
+    self.shown = self.shown + (target - self.shown) * 0.2
+
+    local cx, cy = w.width / 2, w.height - 20
+    g:texture("factory:textures/gauge_bg.png", 0, 0, w.width, w.height)
+    g:arc(cx, cy, 18, 6, 0, 1, 0xFF2A2F2C)
+    g:arc(cx, cy, 18, 6, 0, self.shown, ui.lerpColor(0xFFC0503A, 0xFF5FBF5A, self.shown))
+    g:text(string.format("%d%%", math.floor(self.shown * 100)), cx, cy + 2, { align = "center" })
+    g:text(w.props.label or "", cx, w.height - 9, { align = "center", color = 0xFFCCCCCC })
+
+    if w.hovered then
+      ui.tooltip(w.props.label .. ": " .. math.floor(target * 100) .. " %")
+    end
+  end,
+
+  click = function(self, w, button)
+    return true -- Klick als ScreenClick an den Server melden
+  end,
+})</pre></div>
+    </div>
+
+    <div class="pair" role="tabpanel" id="p-keys" aria-labelledby="t-keys" hidden>
+      <div>
+        <h3>Taste und typisierter Kanal</h3>
+        <p>Das Gegenstück zum heutigen Example-Client in wenigen Zeilen. Die Taste erscheint im Steuerungsmenü unter dem Server, die Belegung merkt sich der Client.</p>
+        <ul class="notes">
+          <li>Kanäle sind automatisch im Namespace der Extension (<code class="i">factory:hello</code>).</li>
+          <li>Nachrichten sind Lua-Tabellen, kodiert als kompaktes JSON. Größe und Rate sind begrenzt.</li>
+        </ul>
+      </div>
+      <div class="code"><div class="file"><span>factory/main.lua</span><span>keybinds, channels</span></div><pre data-lang="lua">local net, keys, ui = kiln.net, kiln.keys, kiln.ui
+
+local hello = net.channel("hello")
+
+keys.bind("hello", {
+  name = "Hallo an Server",
+  default = "J",
+  press = function()
+    hello:send({ text = "Hallo vom Client!" })
+  end,
+})
+
+hello:on(function(msg)
+  ui.toast("Server", msg.text)
+end)</pre></div>
+    </div>
+
+    <div class="pair" role="tabpanel" id="p-hud" aria-labelledby="t-hud" hidden>
+      <div>
+        <h3>HUD-Overlay</h3>
+        <p>Zeichnet dauerhaft eine Maschinen-Anzeige ins Spiel, ohne Screen. Der Server schickt den Zustand nur bei Änderungen, die Animation dazwischen macht der Client.</p>
+        <ul class="notes">
+          <li>Nur mit Recht <code class="i">hud</code>. Das Overlay bekommt einen festen Bereich und kann keine Vanilla-Anzeigen verdecken.</li>
+          <li><code class="i">kiln.time()</code> liefert Spielzeit, keine Systemzeit.</li>
+        </ul>
+      </div>
+      <div class="code"><div class="file"><span>factory/hud.lua</span><span>hud, channels</span></div><pre data-lang="lua">local hud, net = kiln.hud, kiln.net
+
+local state = { energy = 0, running = false }
+net.channel("machine"):on(function(msg) state = msg end)
+
+hud.layer("machine", { anchor = "top_right", width = 90, height = 22 },
+  function(g, area)
+    if not state.running then return end
+    local pulse = 0.5 + 0.5 * math.sin(kiln.time() * 4)
+    g:rect(0, 0, area.width, area.height, 0xA0101410)
+    g:item("minecraft:blast_furnace", 3, 3)
+    g:rect(22, 8, 64, 6, 0xFF2A2F2C)
+    g:rect(22, 8, 64 * state.energy, 6, ui.alpha(0xFFE3C26B, 0.7 + 0.3 * pulse))
+  end)</pre></div>
+    </div>
+
+    <div class="pair" role="tabpanel" id="p-drag" aria-labelledby="t-drag" hidden>
+      <div>
+        <h3>Client-Logik in einem Server-Screen</h3>
+        <p>Für Dinge, die ohne Latenz reagieren müssen: Items per Drag &amp; Drop in einem Sortier-Raster verschieben. Der Client zeigt das Ergebnis sofort, der Server bestätigt oder setzt zurück.</p>
+        <ul class="notes">
+          <li>Das Skript ändert nur seine eigene Darstellung. Echte Items bewegt immer der Server.</li>
+          <li>Lehnt der Server ab, kommt ein normales <code class="i">UpdateScreen</code>, und die Vorschau verschwindet.</li>
+        </ul>
+      </div>
+      <div class="code"><div class="file"><span>factory/sorter.lua</span><span>widgets, channels</span></div><pre data-lang="lua">local ui, net = kiln.ui, kiln.net
+local move = net.channel("sorter_move")
+
+ui.widget("factory:sorter", {
+  init = function(self) self.drag = nil; self.preview = {} end,
+
+  render = function(self, g, w)
+    for i, item in ipairs(w.props.items) do
+      local slot = self.preview[i] or i
+      local x, y = ((slot - 1) % 9) * 18, math.floor((slot - 1) / 9) * 18
+      if self.drag ~= i then g:item(item, x, y) end
+    end
+    if self.drag then
+      g:item(w.props.items[self.drag], w.mouseX - 8, w.mouseY - 8)
+    end
+  end,
+
+  press = function(self, w, mx, my)
+    self.drag = ui.cellAt(mx, my, 18, 9)
+  end,
+
+  release = function(self, w, mx, my)
+    local to = ui.cellAt(mx, my, 18, 9)
+    if self.drag and to then
+      self.preview[self.drag] = to            -- sofort anzeigen
+      move:send({ from = self.drag, to = to }) -- Server entscheidet
+    end
+    self.drag = nil
+  end,
+})</pre></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="server-h">
+    <h2 id="server-h">Serverseite in Kotlin</h2>
+    <div class="pair">
+      <div>
+        <p>Plugins registrieren ihre Extension und nutzen die Widgets wie eingebaute Elemente. Kanäle sind typisiert, damit kein ByteArray-Handling mehr nötig ist.</p>
+        <ul class="notes">
+          <li>Spieler ohne Zustimmung oder ohne Runtime: <code class="i">hasExtension</code> ist false, das Plugin wählt einen Fallback.</li>
+        </ul>
+      </div>
+      <div class="code"><div class="file"><span>FactoryPlugin.kt</span></div><pre data-lang="kotlin">val factory = kiln.extension(this, "factory") {
+    source(dataFolder.resolve("extensions/factory"))
+}
+
+val hello = factory.channel&lt;HelloMessage&gt;("hello") { player, msg ->
+    send(player, HelloMessage("Hallo zurück, ${player.name}!"))
+}
+
+player.openScreen(220, 120) {
+    if (player.hasExtension(factory)) {
+        custom("gauge", factory.widget("gauge"), width = 40, height = 40) {
+            property("value", machine.energy)
+            property("label", "Energie")
+        }
+    } else {
+        progressBar(machine.energy, width = 100)
+    }
+}</pre></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="scope-h">
+    <h2 id="scope-h">Was ein Skript darf</h2>
+    <p>Die Sandbox ist LuaJ ohne gefährliche Standardbibliotheken. Alles, was ein Skript bewirken kann, läuft über die kiln-API.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Bereich</th><th>Verfügbar</th><th>Hinweis</th></tr></thead>
+        <tbody>
+          <tr><td>Lua-Basis: <code>string</code>, <code>math</code>, <code>table</code>, <code>pairs</code></td><td class="yes">ja</td><td>ohne <code>string.dump</code></td></tr>
+          <tr><td>Zeichnen in eigenen Widgets und HUD-Layern</td><td class="yes">ja</td><td>nur im zugewiesenen Bereich, mit Clipping</td></tr>
+          <tr><td>Eigene Kanäle zum Server, von dem die Extension kam</td><td class="yes">ja</td><td>Größe und Rate begrenzt</td></tr>
+          <tr><td>Keybinds, Toasts, Tooltips</td><td class="yes">ja</td><td>nur mit passendem Recht im Manifest</td></tr>
+          <tr><td>Lesender Zugriff auf Spielerposition, Inventar, Zeit</td><td class="yes">ja</td><td>Kopien, keine Minecraft-Objekte</td></tr>
+          <tr><td><code>io</code>, <code>os</code>, <code>debug</code>, <code>load</code> mit Bytecode, <code>luajava</code></td><td class="no">nein</td><td>werden beim Start entfernt</td></tr>
+          <tr><td>Netzwerk zu anderen Hosts, Dateien, Prozesse</td><td class="no">nein</td><td>keine API dafür vorhanden</td></tr>
+          <tr><td>Chat mitlesen, Session, Serverliste, andere Mods</td><td class="no">nein</td><td>keine API dafür vorhanden</td></tr>
+          <tr><td>Vanilla-Screens überlagern oder imitieren</td><td class="no">nein</td><td>Escape schließt eigene Screens immer</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="limits-h">
+    <h2 id="limits-h">Grenzen pro Extension</h2>
+    <div class="limits">
+      <div class="limit"><span>2 ms</span><small>Rechenzeit pro Frame, gezählt über Instruktionen</small></div>
+      <div class="limit"><span>16 MB</span><small>Lua-Speicher</small></div>
+      <div class="limit"><span>4 MB</span><small>Paketgröße inkl. Texturen</small></div>
+      <div class="limit"><span>40 / s</span><small>Kanal-Nachrichten an den Server</small></div>
+    </div>
+    <p class="lede" style="font-size:15px">Überschreitet eine Extension ein Limit, wird sie entladen und der Spieler bekommt einen Hinweis. Der Rest des Servers läuft normal weiter. Die Werte sind Vorschläge für den Prototyp.</p>
+  </section>
+</div>
+
+<script>
+(function () {
+  var KW = {
+    lua: /\b(local|function|end|if|then|else|elseif|for|in|do|return|not|and|or|nil|true|false|while)\b/,
+    kotlin: /\b(val|var|fun|if|else|return|true|false|null)\b/,
+    json: /(?!)/
+  };
+  function esc(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  function highlight(src, lang) {
+    var tokens = /(--[^\n]*|\/\/[^\n]*)|("(?:\\.|[^"\\])*")|(\b0x[0-9A-Fa-f]+\b|\b\d+(?:\.\d+)?\b)|([A-Za-z_][A-Za-z0-9_]*)(?=\s*\()|([A-Za-z_][A-Za-z0-9_]*)|([\s\S])/g;
+    var out = "", m, kw = KW[lang] || KW.json;
+    while ((m = tokens.exec(src))) {
+      if (m[1]) out += '<span class="com">' + esc(m[1]) + "</span>";
+      else if (m[2]) out += '<span class="str">' + esc(m[2]) + "</span>";
+      else if (m[3]) out += '<span class="num">' + m[3] + "</span>";
+      else if (m[4]) out += (kw.test(m[4]) ? '<span class="key">' : '<span class="fn">') + m[4] + "</span>";
+      else if (m[5]) out += kw.test(m[5]) && new RegExp("^" + kw.source + "$").test(m[5]) ? '<span class="key">' + m[5] + "</span>" : m[5];
+      else out += esc(m[6]);
+    }
+    return out;
+  }
+  document.querySelectorAll("pre[data-lang]").forEach(function (pre) {
+    pre.innerHTML = highlight(pre.textContent, pre.dataset.lang);
+  });
+
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
+  function select(tab) {
+    tabs.forEach(function (t) {
+      var on = t === tab;
+      t.setAttribute("aria-selected", on ? "true" : "false");
+      t.tabIndex = on ? 0 : -1;
+      document.getElementById(t.getAttribute("aria-controls")).hidden = !on;
+    });
+  }
+  tabs.forEach(function (t, i) {
+    t.tabIndex = i === 0 ? 0 : -1;
+    t.addEventListener("click", function () { select(t); });
+    t.addEventListener("keydown", function (e) {
+      if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+      var next = tabs[(i + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
+      select(next); next.focus();
+    });
+  });
+})();
+</script>

@@ -1,0 +1,192 @@
+package dev.kiln.client.ext
+
+import dev.kiln.protocol.ExtensionChunk
+import dev.kiln.protocol.ExtensionInfo
+import dev.kiln.protocol.ProtocolLimits
+import org.junit.jupiter.api.Assertions.assertArrayEquals
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
+import java.io.ByteArrayOutputStream
+import java.nio.file.Files
+import java.nio.file.Path
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
+
+class ExtensionPackageTest {
+    private val manifest = """{"id":"factory","version":"1.0.0","name":"Factory","main":"main.lua","permissions":["widgets","hud"]}"""
+
+    private fun zip(vararg entries: Pair<String, ByteArray>): ByteArray {
+        val out = ByteArrayOutputStream()
+        ZipOutputStream(out).use { z ->
+            for ((name, data) in entries) {
+                z.putNextEntry(ZipEntry(name))
+                z.write(data)
+                z.closeEntry()
+            }
+        }
+        return out.toByteArray()
+    }
+
+    private fun valid(vararg extra: Pair<String, ByteArray>) =
+        zip("extension.json" to manifest.toByteArray(), "main.lua" to "-- hi".toByteArray(), *extra)
+
+    @Test
+    fun `valid package is read`() {
+        val pkg = ExtensionPackage.read(valid("textures/gauge_bg.png" to ByteArray(4), "lib/util.lua" to ByteArray(1)), "factory")
+        assertEquals("factory", pkg.id)
+        assertEquals("1.0.0", pkg.version)
+        assertEquals(setOf("widgets", "hud"), pkg.permissions)
+        assertEquals("main.lua", pkg.main)
+        assertTrue(pkg.files.containsKey("textures/gauge_bg.png"))
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = [
+        "../evil.lua", "textures/../../evil.lua", "/abs.lua", "C:/x.lua", "a\\b.lua", "Upper.lua", "x.class", "x.lua.exe",
+        "a//b.lua", "./x.lua", "x", ".lua", "textures/x.PNG", "space name.lua",
+    ])
+    fun `forbidden entry names are rejected (zip slip)`(name: String) {
+        assertFalse(ExtensionPackage.isValidPath(name), name)
+        assertThrows(ExtensionPackageException::class.java) { ExtensionPackage.read(valid(name to ByteArray(1))) }
+    }
+
+    @Test
+    fun `too many entries are rejected`() {
+        val many = (0..ExtensionPackage.MAX_FILES).map { "f$it.lua" to ByteArray(0) }.toTypedArray()
+        assertThrows(ExtensionPackageException::class.java) { ExtensionPackage.read(valid(*many)) }
+    }
+
+    @Test
+    fun `zip bomb stops at the unpacked limit`() {
+        val big = ByteArray(17 * 1024 * 1024) // compresses to a few KiB
+        val zip = valid("big.json" to big)
+        assertTrue(zip.size < ExtensionPackage.MAX_ZIP_BYTES)
+        val e = assertThrows(ExtensionPackageException::class.java) { ExtensionPackage.read(zip) }
+        assertTrue(e.message!!.contains("unpacked"), e.message)
+    }
+
+    @Test
+    fun `oversized zip is rejected`() {
+        assertThrows(ExtensionPackageException::class.java) { ExtensionPackage.read(ByteArray(ExtensionPackage.MAX_ZIP_BYTES + 1)) }
+    }
+
+    @Test
+    fun `manifest is validated`() {
+        fun with(json: String, vararg files: Pair<String, ByteArray>) = zip("extension.json" to json.toByteArray(), "main.lua" to ByteArray(0), *files)
+        assertThrows(ExtensionPackageException::class.java) { ExtensionPackage.read(zip("main.lua" to ByteArray(0))) }
+        assertThrows(ExtensionPackageException::class.java) { ExtensionPackage.read(with("[]")) }
+        assertThrows(ExtensionPackageException::class.java) { ExtensionPackage.read(with("""{"id":"Bad-Id","version":"1","name":"x"}""")) }
+        assertThrows(ExtensionPackageException::class.java) { ExtensionPackage.read(with("""{"id":"x","version":"1","name":"x","permissions":["root"]}""")) }
+        assertThrows(ExtensionPackageException::class.java) { ExtensionPackage.read(with("""{"id":"x","version":"1","name":"x","permissions":["hud","hud"]}""")) }
+        assertThrows(ExtensionPackageException::class.java) { ExtensionPackage.read(with("""{"id":"x","version":"1","name":"x","main":"other.lua"}""")) }
+        assertThrows(ExtensionPackageException::class.java) { ExtensionPackage.read(with("""{"id":"x","version":"","name":"x"}""")) }
+        // id must match what the server announced
+        assertThrows(ExtensionPackageException::class.java) { ExtensionPackage.read(valid(), "other") }
+        // defaults: main.lua, no permissions; unknown fields are ignored
+        val pkg = ExtensionPackage.read(with("""{"id":"x","version":"1","name":"x","assets":["a"]}"""))
+        assertEquals("main.lua", pkg.main)
+        assertTrue(pkg.permissions.isEmpty())
+    }
+
+    @Test
+    fun `corrupt data is rejected`() {
+        assertThrows(ExtensionPackageException::class.java) { ExtensionPackage.read("not a zip".toByteArray()) }
+    }
+
+    // ---- download ---------------------------------------------------------------------------------------------
+
+    private fun info(data: ByteArray, id: String = "factory") =
+        ExtensionInfo(id, "1.0.0", "Factory", Sha256.of(data), data.size, listOf("widgets"))
+
+    private fun chunks(info: ExtensionInfo, data: ByteArray): List<ExtensionChunk> {
+        val size = ProtocolLimits.MAX_EXTENSION_CHUNK_BYTES
+        return (0 until info.chunkCount).map { i ->
+            ExtensionChunk(info.id, i, info.chunkCount, data.copyOfRange(i * size, minOf(data.size, (i + 1) * size)))
+        }
+    }
+
+    @Test
+    fun `chunks are reassembled and verified`() {
+        val data = ByteArray(ProtocolLimits.MAX_EXTENSION_CHUNK_BYTES * 2 + 123) { (it * 31).toByte() }
+        val info = info(data)
+        val assembler = ChunkAssembler(info)
+        val parts = chunks(info, data)
+        assertNull(assembler.add(parts[0]))
+        assertNull(assembler.add(parts[1]))
+        assertArrayEquals(data, assembler.add(parts[2]))
+        assertTrue(assembler.isComplete)
+    }
+
+    @Test
+    fun `bad chunks are rejected`() {
+        val data = ByteArray(ProtocolLimits.MAX_EXTENSION_CHUNK_BYTES + 10) { it.toByte() }
+        val info = info(data)
+        val parts = chunks(info, data)
+        assertThrows(ExtensionPackageException::class.java) { ChunkAssembler(info).add(parts[1]) } // out of order
+        assertThrows(ExtensionPackageException::class.java) { ChunkAssembler(info).add(ExtensionChunk("other", 0, 2, parts[0].data)) }
+        assertThrows(ExtensionPackageException::class.java) { ChunkAssembler(info).add(ExtensionChunk("factory", 0, 3, parts[0].data)) }
+        assertThrows(ExtensionPackageException::class.java) { ChunkAssembler(info).add(ExtensionChunk("factory", 0, 2, ByteArray(5))) }
+        // tampered content: SHA-256 mismatch
+        val tampered = ChunkAssembler(info)
+        tampered.add(parts[0])
+        val last = parts[1].data.copyOf().also { it[0] = (it[0] + 1).toByte() }
+        val e = assertThrows(ExtensionPackageException::class.java) { tampered.add(ExtensionChunk("factory", 1, 2, last)) }
+        assertTrue(e.message!!.contains("SHA-256"))
+    }
+
+    @Test
+    fun `cache stores by hash and drops corrupt files`(@TempDir dir: Path) {
+        val data = "zip".toByteArray()
+        val info = info(data)
+        val cache = ExtensionCache(dir)
+        assertNull(cache.get(info))
+        cache.put(info, data)
+        assertTrue(Files.exists(dir.resolve(Sha256.hex(info.sha256) + ".zip")))
+        assertArrayEquals(data, cache.get(info))
+        Files.write(dir.resolve(Sha256.hex(info.sha256) + ".zip"), "zap".toByteArray())
+        assertNull(cache.get(info))
+        assertFalse(Files.exists(dir.resolve(Sha256.hex(info.sha256) + ".zip")))
+    }
+
+    // ---- trust ------------------------------------------------------------------------------------------------
+
+    @Test
+    fun `trust is persisted per server and set of id and permissions`(@TempDir dir: Path) {
+        val file = dir.resolve("config/kiln-trust.json")
+        val store = TrustStore(file)
+        store.load()
+        val request = listOf(TrustStore.Grant("factory", setOf("widgets", "hud")), TrustStore.Grant("chat", emptySet()))
+        assertFalse(store.isTrusted("play.example.net", request))
+        assertTrue(store.isTrusted("play.example.net", emptyList()))
+        store.trust("play.example.net", request)
+        store.save()
+
+        val reloaded = TrustStore(file)
+        reloaded.load()
+        assertTrue(reloaded.isTrusted("play.example.net", request))
+        assertTrue(reloaded.isTrusted("play.example.net", request.take(1)))
+        assertFalse(reloaded.isTrusted("other.net", request))
+        // more permissions or a new extension ask again
+        assertFalse(reloaded.isTrusted("play.example.net", listOf(TrustStore.Grant("factory", setOf("widgets", "hud", "keybinds")))))
+        assertFalse(reloaded.isTrusted("play.example.net", request + TrustStore.Grant("new", emptySet())))
+        // a re-grant replaces the old permission set of that id
+        reloaded.trust("play.example.net", listOf(TrustStore.Grant("factory", setOf("widgets"))))
+        assertFalse(reloaded.isTrusted("play.example.net", request.take(1)))
+    }
+
+    @Test
+    fun `corrupt trust file means nothing is trusted`(@TempDir dir: Path) {
+        val file = dir.resolve("trust.json")
+        Files.writeString(file, "{ broken")
+        val store = TrustStore(file)
+        store.load()
+        assertFalse(store.isTrusted("a", listOf(TrustStore.Grant("x", emptySet()))))
+    }
+}

@@ -1,0 +1,8 @@
+{
+  "id": "kiln_example",
+  "version": "1.0.0",
+  "name": "Kiln Beispiel",
+  "main": "main.lua",
+  "icon": "icon.png",
+  "permissions": ["widgets", "keybinds", "hud", "channels", "toasts"]
+}
