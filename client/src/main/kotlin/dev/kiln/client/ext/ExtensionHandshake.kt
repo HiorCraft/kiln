@@ -29,7 +29,10 @@ class ExtensionHandshake(
      * screen was shown this long, so the player sees what is downloaded and checked even when it is fast.
      */
     private val minProgressMillis: Long = 0,
+    /** Everything loaded: the bar stays at 100 % this long before readiness is reported (the world follows at once). */
+    private val minFinishMillis: Long = 0,
 ) {
+    private var finishedAt = 0L
     private var unpackedBytes = 0L
     private var progressShownAt = 0L
 
@@ -99,13 +102,16 @@ class ExtensionHandshake(
     val totalBytes: Long get() = items.sumOf { it.info.size.toLong() }
     val receivedBytes: Long get() = items.sumOf { if (it.status == Status.QUEUED || it.status == Status.DOWNLOADING) it.received.toLong() else it.info.size.toLong() }
 
-    /** 0..1 over download (first half of the bar for downloads) and start-up. */
+    /** 0..1: download 50 %, verification 15 %, resources 15 %, start of the extensions 20 %. */
     val progress: Float
         get() {
             if (items.isEmpty()) return if (phase == Phase.DONE) 1f else 0f
             val bytes = if (totalBytes == 0L) 1f else receivedBytes.toFloat() / totalBytes
+            val verified = items.count { it.status == Status.STARTING || it.status == Status.DONE }.toFloat() / items.size
+            val resources = if (resourcesReady) 1f else 0f
+            if (items.all { it.status == Status.DONE }) return 1f
             val done = items.count { it.status == Status.DONE }.toFloat() / items.size
-            return (bytes * 0.7f + done * 0.3f).coerceIn(0f, 1f)
+            return (bytes * 0.5f + verified * 0.15f + resources * 0.15f + done * 0.2f).coerceIn(0f, 1f)
         }
 
     private val grants: List<TrustStore.Grant> get() = items.map { TrustStore.Grant(it.info.id, it.info.permissions.toSet()) }
@@ -260,7 +266,10 @@ class ExtensionHandshake(
             }
             return
         }
-        if (items.all { it.status == Status.DONE }) ready()
+        if (items.all { it.status == Status.DONE }) {
+            if (finishedAt == 0L) finishedAt = clock()
+            if (clock() - finishedAt >= minFinishMillis) ready()
+        }
     }
 
     private fun ready() {

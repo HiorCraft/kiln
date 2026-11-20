@@ -107,7 +107,7 @@ class KilnClientImpl(
 
     /** One connection's configuration-phase state. */
     private inner class Session(val listener: ClientConfigurationPacketListenerImpl, val server: String) : ExtensionHandshake.Io {
-        val handshake = ExtensionHandshake(this, minProgressMillis = MIN_PROGRESS_MILLIS)
+        val handshake = ExtensionHandshake(this, minProgressMillis = MIN_PROGRESS_MILLIS, minFinishMillis = MIN_FINISH_MILLIS)
         var manifestAt = 0L
         var reported = false
 
@@ -461,6 +461,9 @@ class KilnClientImpl(
 
         /** The loading screen stays this long before a resource reload covers it (see ExtensionHandshake). */
         const val MIN_PROGRESS_MILLIS = 1_500L
+
+        /** The finished loading screen (100 %) stays this long before the client reports ready. */
+        const val MIN_FINISH_MILLIS = 700L
 
         /**
          * Key for consent and keybind persistence: the address as entered in the server list (lowercase). In the

@@ -387,6 +387,27 @@ class ExtensionHandshakeTest {
     }
 
     @Test
+    fun `the bar reaches 100 percent and stays there before ready is reported`() {
+        val r = resourceZip("r")
+        val io = FakeIo(trusted = true, cache = mutableMapOf("r" to r))
+        var now = 1_000L
+        val h = ExtensionHandshake(io, clock = { now }, minFinishMillis = 600)
+        h.onWelcome(PROTOCOL_VERSION)
+        h.onManifest(ExtensionManifest(listOf(resourceInfo("r", r))))
+        runToEnd(h)
+        val beforeReload = h.progress
+        assertTrue(beforeReload in 0.5f..0.9f, "downloaded and verified: $beforeReload")
+        io.reloadDone!!(null)
+        runToEnd(h)
+        assertEquals(1f, h.progress)
+        assertTrue(io.sent.none { it is ExtensionsReady }, io.sent.toString())
+        now += 600
+        runToEnd(h)
+        assertEquals(ExtensionsReady(true), io.sent.last())
+        assertEquals(Phase.DONE, h.phase)
+    }
+
+    @Test
     fun `reload error fails the handshake`() {
         val r = resourceZip("r")
         val io = FakeIo(trusted = true, cache = mutableMapOf("r" to r))
