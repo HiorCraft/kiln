@@ -262,4 +262,19 @@ class ExtensionPackagerTest {
         f["assets/demo/one_more.txt"] = ByteArray(0)
         assertThrows<InvalidExtensionException> { ExtensionPackager.build("demo", f) }
     }
+
+    private fun pngHeader(width: Int, height: Int): ByteArray {
+        val b = java.nio.ByteBuffer.allocate(33)
+        b.put(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A))
+        b.putInt(13).put("IHDR".toByteArray()).putInt(width).putInt(height)
+        return b.array()
+    }
+
+    @Test
+    fun `oversized and headerless asset textures are rejected`() {
+        val ok = resourceFiles().also { it["assets/demo/textures/item/a.png"] = pngHeader(4096, 16) }
+        ExtensionPackager.build("demo", ok)
+        assertThrows<InvalidExtensionException> { ExtensionPackager.build("demo", resourceFiles().also { it["assets/demo/textures/item/a.png"] = pngHeader(30000, 30000) }) }
+        assertThrows<InvalidExtensionException> { ExtensionPackager.build("demo", resourceFiles().also { it["assets/demo/textures/item/a.png"] = png }) }
+    }
 }

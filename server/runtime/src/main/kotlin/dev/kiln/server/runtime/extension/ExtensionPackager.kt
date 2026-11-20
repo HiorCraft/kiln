@@ -166,7 +166,7 @@ object ExtensionPackager {
     }
 
     private fun validateAssetPng(path: String, bytes: ByteArray) {
-        if (bytes.size < 24 || String(bytes, 12, 4, Charsets.US_ASCII) != "IHDR") return // checked by the client when decoding
+        if (bytes.size < 24 || String(bytes, 12, 4, Charsets.US_ASCII) != "IHDR") throw InvalidExtensionException("'$path' is not a valid PNG (no IHDR)")
         val buffer = ByteBuffer.wrap(bytes, 16, 8)
         val width = buffer.int
         val height = buffer.int

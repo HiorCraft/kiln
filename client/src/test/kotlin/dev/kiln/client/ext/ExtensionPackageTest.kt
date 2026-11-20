@@ -237,4 +237,23 @@ class ExtensionPackageTest {
         val e = assertThrows(ExtensionPackageException::class.java) { ExtensionPackage.read(resources(permissions = "[]")) }
         assertTrue(e.message!!.contains("resources"), e.message)
     }
+
+    private fun pngHeader(width: Int, height: Int): ByteArray {
+        val b = java.nio.ByteBuffer.allocate(33)
+        b.put(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A))
+        b.putInt(13).put("IHDR".toByteArray()).putInt(width).putInt(height)
+        return b.array()
+    }
+
+    @Test
+    fun `oversized and headerless asset textures are rejected`() {
+        fun read(png: ByteArray) = ExtensionPackage.read(zip(
+            "extension.json" to """{"id":"factory","version":"1","name":"Factory","permissions":["resources"]}""".toByteArray(),
+            "assets/factory/textures/item/a.png" to png,
+        ))
+        read(pngHeader(4096, 16))
+        val e = assertThrows(ExtensionPackageException::class.java) { read(pngHeader(30000, 30000)) }
+        assertTrue(e.message!!.contains("30000x30000"), e.message)
+        assertThrows(ExtensionPackageException::class.java) { read(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1)) }
+    }
 }

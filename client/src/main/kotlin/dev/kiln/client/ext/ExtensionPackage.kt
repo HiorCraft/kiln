@@ -151,6 +151,12 @@ class ExtensionPackage(
                 if (!path.startsWith(AssetRules.ROOT)) continue
                 any = true
                 AssetRules.problem(id, path, bytes.size)?.let { fail(it) }
+                if (path.endsWith(".png")) {
+                    // size from the header before Minecraft decodes it (no huge allocations, no failing atlas)
+                    val size = PngHeader.size(bytes) ?: fail("$path is not a PNG")
+                    val max = ProtocolLimits.MAX_ASSET_TEXTURE_SIZE
+                    if (size[0] !in 1..max || size[1] !in 1..max) fail("$path is ${size[0]}x${size[1]}, at most ${max}x$max allowed")
+                }
                 if (path.endsWith(".json") || path.endsWith(".mcmeta")) {
                     val text = String(bytes, Charsets.UTF_8)
                     AssetRules.jsonProblem(path, text)?.let { fail(it) }
