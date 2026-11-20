@@ -1,34 +1,8 @@
 package dev.kiln.server.api.extension
 
-import dev.kiln.server.api.Registration
 import net.kyori.adventure.key.Key
 import org.bukkit.entity.Player
 import org.bukkit.plugin.Plugin
-import java.nio.file.Files
-import java.nio.file.Path
-
-/**
- * Where the files of a Lua extension package come from. The package layout is
- * `extension.json`, Lua files, PNG textures below `textures/`, `lang/<locale>.json` (see `docs/lua-extensions.md`).
- */
-public sealed interface ExtensionSource {
-    /** A directory containing `extension.json` directly. */
-    public data class Directory(val path: Path) : ExtensionSource
-
-    /** A zip with `extension.json` at its root or inside a single top-level `<id>/` folder. */
-    public data class Zip(val path: Path) : ExtensionSource
-
-    /**
-     * A folder inside [plugin]'s jar, e.g. `extensions/my_ext` for `src/main/resources/extensions/my_ext/`.
-     */
-    public data class PluginResource(val plugin: Plugin, val path: String) : ExtensionSource
-
-    public companion object {
-        /** [Directory] for directories, otherwise [Zip]. */
-        @JvmStatic
-        public fun of(path: Path): ExtensionSource = if (Files.isDirectory(path)) Directory(path) else Zip(path)
-    }
-}
 
 /**
  * A registered Lua extension package. Every player in the world has downloaded, accepted and loaded it during the
@@ -42,7 +16,10 @@ public interface Extension {
     public val version: String
     public val name: String
 
-    /** Granted permissions (subset of `widgets`, `keybinds`, `hud`, `channels`, `toasts`, `screens`, `inventory`). */
+    /**
+     * Granted permissions (subset of `widgets`, `keybinds`, `hud`, `channels`, `toasts`, `screens`, `inventory`,
+     * `resources`).
+     */
     public val permissions: Set<String>
 
     /**
@@ -86,24 +63,6 @@ public interface Extension {
 
     /** Removes the extension; players that connect afterwards no longer get it. Channels stop receiving. */
     public fun unregister()
-}
-
-/** A typed channel of an [Extension], see [Extension.channel]. */
-public interface ExtensionChannel<T : Any> : Registration {
-    public val extension: Extension
-
-    /** `<extension id>:<name>` */
-    public val key: Key
-
-    /**
-     * Sends [message] (serialized with Gson) to the extension on [player]'s client. Does nothing if the player is
-     * offline. @throws IllegalArgumentException if the JSON exceeds 262144 chars (messages from the client are
-     * limited to 16384 chars). Items go in as strings from [ExtensionItems.encode].
-     */
-    public fun send(player: Player, message: T)
-
-    /** Sends [message] to every online player. */
-    public fun broadcast(message: T)
 }
 
 /** Typed [Extension.channel] with a receive handler. */

@@ -4,12 +4,11 @@ import io.papermc.paper.plugin.bootstrap.BootstrapContext
 import io.papermc.paper.registry.RegistryKey
 import io.papermc.paper.registry.TypedKey
 import io.papermc.paper.registry.data.EnchantmentRegistryEntry
+import io.papermc.paper.registry.event.RegistryComposeEvent
 import io.papermc.paper.registry.event.RegistryEvents
-import io.papermc.paper.registry.tag.TagKey
 import net.kyori.adventure.key.Key
 import net.kyori.adventure.text.Component
-import org.bukkit.inventory.EquipmentSlotGroup
-import org.bukkit.inventory.ItemType
+import org.bukkit.enchantments.Enchantment
 import java.util.Collections
 
 /**
@@ -42,53 +41,31 @@ public object KilnBootstrap {
         context.lifecycleManager.registerEventHandler(RegistryEvents.ENCHANTMENT.compose().newHandler { event ->
             for ((key, definition) in definitions) {
                 event.registry().register(TypedKey.create(RegistryKey.ENCHANTMENT, key)) { builder ->
-                    builder.description(definition.description ?: Component.translatable("${key.namespace()}.enchantment.${key.value()}"))
-                        .supportedItems(event.getOrCreateTag(definition.supportedItems ?: error("enchantment ${key.asString()}: supportedItems missing")))
-                        .weight(definition.weight)
-                        .maxLevel(definition.maxLevel)
-                        .minimumCost(EnchantmentRegistryEntry.EnchantmentCost.of(definition.minCost.first, definition.minCost.second))
-                        .maximumCost(EnchantmentRegistryEntry.EnchantmentCost.of(definition.maxCost.first, definition.maxCost.second))
-                        .anvilCost(definition.anvilCost)
-                        .activeSlots(definition.slots)
-                    definition.primaryItems?.let { builder.primaryItems(event.getOrCreateTag(it)) }
+                    configure(builder, event, key, definition)
                 }
             }
         })
     }
-}
 
-/** Receiver of [KilnBootstrap.enchantments]. */
-public class EnchantmentDefinitions {
-    internal val definitions = LinkedHashMap<Key, EnchantmentDefinition>()
-
-    public fun register(key: Key, init: EnchantmentDefinition.() -> Unit) {
-        check(key !in definitions) { "enchantment ${key.asString()} defined twice" }
-        definitions[key] = EnchantmentDefinition().apply(init)
+    private fun configure(
+        builder: EnchantmentRegistryEntry.Builder,
+        event: RegistryComposeEvent<Enchantment, EnchantmentRegistryEntry.Builder>,
+        key: Key,
+        definition: EnchantmentDefinition,
+    ) {
+        val supportedItems = definition.supportedItems ?: error("enchantment ${key.asString()}: supportedItems missing")
+        builder.description(definition.description ?: Component.translatable("${key.namespace()}.enchantment.${key.value()}"))
+            .supportedItems(event.getOrCreateTag(supportedItems))
+            .weight(definition.weight)
+            .maxLevel(definition.maxLevel)
+            .minimumCost(cost(definition.minCost))
+            .maximumCost(cost(definition.maxCost))
+            .anvilCost(definition.anvilCost)
+            .activeSlots(definition.slots)
+        definition.primaryItems?.let { builder.primaryItems(event.getOrCreateTag(it)) }
     }
-}
 
-/** One custom enchantment (mirrors Paper's `EnchantmentRegistryEntry.Builder`). */
-public class EnchantmentDefinition {
-    /** Name shown on items; default `translatable("<ns>.enchantment.<path>")`. */
-    public var description: Component? = null
-
-    /** Items it can be applied to (anvil, commands); required. */
-    public var supportedItems: TagKey<ItemType>? = null
-
-    /** Items it is offered for in the enchanting table; `null` = [supportedItems]. */
-    public var primaryItems: TagKey<ItemType>? = null
-
-    public var maxLevel: Int = 1
-    public var weight: Int = 1
-    public var anvilCost: Int = 1
-
-    /** Enchanting-table cost at level 1 and per further level (base, per level). */
-    public var minCost: Pair<Int, Int> = 1 to 10
-    public var maxCost: Pair<Int, Int> = 21 to 10
-
-    internal var slots: List<EquipmentSlotGroup> = listOf(EquipmentSlotGroup.ANY)
-
-    public fun slots(vararg groups: EquipmentSlotGroup) {
-        slots = groups.toList()
-    }
+    /** `(base, per level)` as Paper's cost type. */
+    private fun cost(baseAndPerLevel: Pair<Int, Int>): EnchantmentRegistryEntry.EnchantmentCost =
+        EnchantmentRegistryEntry.EnchantmentCost.of(baseAndPerLevel.first, baseAndPerLevel.second)
 }

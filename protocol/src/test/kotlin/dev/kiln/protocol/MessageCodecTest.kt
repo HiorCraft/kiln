@@ -1,7 +1,61 @@
 package dev.kiln.protocol
 
+import dev.kiln.protocol.codec.ElementCodec
 import dev.kiln.protocol.codec.MessageCodec
+import dev.kiln.protocol.codec.ProtocolReader
 import dev.kiln.protocol.codec.ProtocolWriter
+import dev.kiln.protocol.element.Button
+import dev.kiln.protocol.element.Checkbox
+import dev.kiln.protocol.element.CheckboxStyle
+import dev.kiln.protocol.element.Custom
+import dev.kiln.protocol.element.Dropdown
+import dev.kiln.protocol.element.DropdownOption
+import dev.kiln.protocol.element.Element
+import dev.kiln.protocol.element.Image
+import dev.kiln.protocol.element.ItemDisplay
+import dev.kiln.protocol.element.ItemSlot
+import dev.kiln.protocol.element.Modal
+import dev.kiln.protocol.element.NumericRange
+import dev.kiln.protocol.element.Panel
+import dev.kiln.protocol.element.ProgressBar
+import dev.kiln.protocol.element.ScrollPanel
+import dev.kiln.protocol.element.Slider
+import dev.kiln.protocol.element.Text
+import dev.kiln.protocol.element.TextField
+import dev.kiln.protocol.element.topModal
+import dev.kiln.protocol.message.AnimationMode
+import dev.kiln.protocol.message.ClickModifiers
+import dev.kiln.protocol.message.ClientboundMessage
+import dev.kiln.protocol.message.CloseScreen
+import dev.kiln.protocol.message.CreativeTabData
+import dev.kiln.protocol.message.CreativeTabs
+import dev.kiln.protocol.message.DeclareKeybinds
+import dev.kiln.protocol.message.EntityAppearance
+import dev.kiln.protocol.message.EntityTraits
+import dev.kiln.protocol.message.EntityTraitsRemove
+import dev.kiln.protocol.message.ExtensionChunk
+import dev.kiln.protocol.message.ExtensionInfo
+import dev.kiln.protocol.message.ExtensionManifest
+import dev.kiln.protocol.message.ExtensionMessage
+import dev.kiln.protocol.message.ExtensionRequest
+import dev.kiln.protocol.message.ExtensionsReady
+import dev.kiln.protocol.message.Hello
+import dev.kiln.protocol.message.KeyPressed
+import dev.kiln.protocol.message.KeyReleased
+import dev.kiln.protocol.message.KeybindDeclaration
+import dev.kiln.protocol.message.ModalDismiss
+import dev.kiln.protocol.message.OpenScreen
+import dev.kiln.protocol.message.PlayAnimation
+import dev.kiln.protocol.message.ScreenClick
+import dev.kiln.protocol.message.ScreenClosed
+import dev.kiln.protocol.message.ScreenInput
+import dev.kiln.protocol.message.ServerboundMessage
+import dev.kiln.protocol.message.SetPostEffect
+import dev.kiln.protocol.message.ShowToast
+import dev.kiln.protocol.message.StopAnimation
+import dev.kiln.protocol.message.UpdateScreen
+import dev.kiln.protocol.message.Viewport
+import dev.kiln.protocol.message.Welcome
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -9,6 +63,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
+import java.io.ByteArrayOutputStream
+import java.util.zip.GZIPOutputStream
 import kotlin.random.Random
 
 class MessageCodecTest {
@@ -17,8 +73,8 @@ class MessageCodecTest {
         private val b = Bounds(0, 0, 10, 10)
 
         /** Real gzip data, as Paper's serializeAsBytes() would produce (content irrelevant for the codec). */
-        val gzip: ByteArray = java.io.ByteArrayOutputStream().also { out ->
-            java.util.zip.GZIPOutputStream(out).use { it.write("fake nbt".toByteArray()) }
+        val gzip: ByteArray = ByteArrayOutputStream().also { out ->
+            GZIPOutputStream(out).use { it.write("fake nbt".toByteArray()) }
         }.toByteArray()
 
         val diamond = ItemStackData(ResourceId.parse("diamond"), 64)
@@ -168,19 +224,12 @@ class MessageCodecTest {
         repeat(ProtocolLimits.MAX_DEPTH) { element = Panel("p$it", b, listOf(element)) }
         assertThrows<ProtocolException> { MessageCodec.encodeClientbound(OpenScreen(1, element)) }
 
-        // hand-crafted: a chain of panels far deeper than allowed must fail cleanly, not overflow the stack
-        val w = ProtocolWriter()
-        w.varInt(2) // OPEN_SCREEN
-        w.varInt(1)
-        w.boolean(false) // fullscreen
-        repeat(10_000) { i ->
-            w.varInt(0); w.string("p$i", 64); w.signedVarInt(0); w.signedVarInt(0); w.varInt(1); w.varInt(1)
-            w.boolean(false) // tooltip
-            repeat(5) { w.boolean(false) } // background, texture, border, hover background, selected background
-            w.boolean(false); w.boolean(false) // selected, clickable
-            w.varInt(1)
-        }
-        assertThrows<ProtocolException> { MessageCodec.decodeClientbound(w.toByteArray()) }
+        // a chain of panels far deeper than allowed (written by starting far below the root depth) must fail
+        // cleanly on decode, not overflow the stack
+        var chain: Element = Text("leaf", b, "\"x\"")
+        repeat(100) { chain = Panel("p$it", b, listOf(chain)) }
+        val w = ProtocolWriter().also { ElementCodec.encode(it, chain, depth = -100) }
+        assertThrows<ProtocolException> { ElementCodec.decode(ProtocolReader(w.toByteArray())) }
     }
 
     @Test
@@ -241,20 +290,20 @@ class MessageCodecTest {
     @Test
     fun `invalid v3 extension messages are rejected`() {
         val sha = ByteArray(32)
-        fun info(id: String = "ok", sha256: ByteArray = sha, size: Int = 10, permissions: List<String> = emptyList()) =
+        fun manifest(id: String = "ok", sha256: ByteArray = sha, size: Int = 10, permissions: List<String> = emptyList()) =
             ExtensionManifest(listOf(ExtensionInfo(id, "1", "n", sha256, size, permissions)))
-        assertThrows<ProtocolException> { MessageCodec.encodeClientbound(info(id = "Bad-Id")) }
-        assertThrows<ProtocolException> { MessageCodec.encodeClientbound(info(id = "a".repeat(33))) }
-        assertThrows<ProtocolException> { MessageCodec.encodeClientbound(info(sha256 = ByteArray(31))) }
-        assertThrows<ProtocolException> { MessageCodec.encodeClientbound(info(size = 0)) }
-        assertThrows<ProtocolException> { MessageCodec.encodeClientbound(info(size = ProtocolLimits.MAX_EXTENSION_PACKAGE_BYTES + 1)) }
+        assertThrows<ProtocolException> { MessageCodec.encodeClientbound(manifest(id = "Bad-Id")) }
+        assertThrows<ProtocolException> { MessageCodec.encodeClientbound(manifest(id = "a".repeat(33))) }
+        assertThrows<ProtocolException> { MessageCodec.encodeClientbound(manifest(sha256 = ByteArray(31))) }
+        assertThrows<ProtocolException> { MessageCodec.encodeClientbound(manifest(size = 0)) }
+        assertThrows<ProtocolException> { MessageCodec.encodeClientbound(manifest(size = ProtocolLimits.MAX_EXTENSION_PACKAGE_BYTES + 1)) }
         assertThrows<ProtocolException> {
             MessageCodec.encodeClientbound(ExtensionManifest(listOf(ExtensionInfo("ok", "1", "n", sha, 10, emptyList(), ByteArray(ProtocolLimits.MAX_EXTENSION_ICON_BYTES + 1)))))
         }
-        assertThrows<ProtocolException> { MessageCodec.encodeClientbound(info(permissions = listOf("hud", "hud"))) }
-        assertThrows<ProtocolException> { MessageCodec.encodeClientbound(info(permissions = listOf("root"))) }
+        assertThrows<ProtocolException> { MessageCodec.encodeClientbound(manifest(permissions = listOf("hud", "hud"))) }
+        assertThrows<ProtocolException> { MessageCodec.encodeClientbound(manifest(permissions = listOf("root"))) }
         assertThrows<ProtocolException> {
-            MessageCodec.encodeClientbound(ExtensionManifest(listOf(info().extensions[0], info().extensions[0])))
+            MessageCodec.encodeClientbound(ExtensionManifest(listOf(manifest().extensions[0], manifest().extensions[0])))
         }
         assertThrows<ProtocolException> { MessageCodec.encodeClientbound(ExtensionChunk("a", 1, 1, byteArrayOf(1))) }
         assertThrows<ProtocolException> { MessageCodec.encodeClientbound(ExtensionChunk("a", 0, 1, ByteArray(0))) }
@@ -273,9 +322,9 @@ class MessageCodecTest {
         assertThrows<ProtocolException> { MessageCodec.encodeServerbound(ExtensionMessage(ResourceId.of("a.b", "c"), "{}")) }
         assertThrows<ProtocolException> { MessageCodec.encodeServerbound(ExtensionMessage(ResourceId.of("a", "c/d"), "{}")) }
         assertEquals(64, ExtensionInfo("a", "", "", ByteArray(32) { 0xAB.toByte() }, 1, emptyList()).sha256Hex.length)
-        assertEquals(1, info(size = ProtocolLimits.MAX_EXTENSION_CHUNK_BYTES).extensions[0].chunkCount)
-        assertEquals(2, info(size = ProtocolLimits.MAX_EXTENSION_CHUNK_BYTES + 1).extensions[0].chunkCount)
-        assertEquals(ProtocolLimits.MAX_EXTENSION_CHUNKS, info(size = ProtocolLimits.MAX_EXTENSION_PACKAGE_BYTES).extensions[0].chunkCount)
+        assertEquals(1, manifest(size = ProtocolLimits.MAX_EXTENSION_CHUNK_BYTES).extensions[0].chunkCount)
+        assertEquals(2, manifest(size = ProtocolLimits.MAX_EXTENSION_CHUNK_BYTES + 1).extensions[0].chunkCount)
+        assertEquals(ProtocolLimits.MAX_EXTENSION_CHUNKS, manifest(size = ProtocolLimits.MAX_EXTENSION_PACKAGE_BYTES).extensions[0].chunkCount)
     }
 
     @Test
@@ -327,12 +376,9 @@ class MessageCodecTest {
         assertEquals("n", inRoot(Text("t", b, "\"\""), Modal("m", b), Modal("n", b), Text("u", b, "\"\"")).topModal()?.id)
         assertEquals(null, inRoot(Text("t", b, "\"\"")).topModal())
 
-        // decode side: hand-crafted modal as root
-        val w = ProtocolWriter()
-        w.varInt(2); w.varInt(1); w.boolean(false)
-        w.varInt(13); w.string("m", 64); w.signedVarInt(0); w.signedVarInt(0); w.varInt(1); w.varInt(1)
-        w.boolean(false); w.boolean(false); w.boolean(false); w.int(0); w.varInt(0)
-        assertThrows<ProtocolException> { MessageCodec.decodeClientbound(w.toByteArray()) }
+        // decode side: a modal written as a root child, read back as the root
+        val w = ProtocolWriter().also { ElementCodec.encode(it, Modal("m", b), depth = 2) }
+        assertThrows<ProtocolException> { ElementCodec.decode(ProtocolReader(w.toByteArray())) }
     }
 
     @Test
@@ -372,9 +418,9 @@ class MessageCodecTest {
         assertThrows<ProtocolException> { MessageCodec.encodeServerbound(ModalDismiss(1, "bad id!")) }
         assertThrows<ProtocolException> { MessageCodec.encodeClientbound(ShowToast("\"t\"", displayMillis = 0)) }
         assertThrows<ProtocolException> { MessageCodec.encodeClientbound(ShowToast("\"t\"", displayMillis = ProtocolLimits.MAX_TOAST_MILLIS + 1)) }
-        // hand-crafted click with modifier bits outside ClickModifiers.ALL
-        val w = ProtocolWriter().apply { varInt(1); varInt(1); string("x", 64); varInt(0); varInt(9) }
-        assertThrows<ProtocolException> { MessageCodec.decodeServerbound(w.toByteArray()) }
+        // decode side: a click whose modifiers (its last field) have bits outside ClickModifiers.ALL
+        val click = MessageCodec.encodeServerbound(ScreenClick(1, "x", 0))
+        assertThrows<ProtocolException> { MessageCodec.decodeServerbound(replaceLastField(click, 1) { varInt(9) }) }
     }
 
     @Test
@@ -412,16 +458,22 @@ class MessageCodecTest {
         assertThrows<ProtocolException> { MessageCodec.decodeClientbound(byteArrayOf(99)) }
         // varint longer than 5 bytes
         assertThrows<ProtocolException> { MessageCodec.decodeServerbound(byteArrayOf(-1, -1, -1, -1, -1, -1)) }
-        // Hello announcing a huge extension list with no data
-        val w = ProtocolWriter().apply { varInt(0); varInt(1); varInt(Int.MAX_VALUE) }
-        assertThrows<ProtocolException> { MessageCodec.decodeServerbound(w.toByteArray()) }
-        // extension payload claiming more bytes than present
-        val x = ProtocolWriter().apply { varInt(6); string("a:b", 256); varInt(10_000) }
-        assertThrows<ProtocolException> { MessageCodec.decodeServerbound(x.toByteArray()) }
-        // invalid UTF-8
-        val u = ProtocolWriter().apply { varInt(4); varInt(2); byte(0xC3); byte(0x28) }
-        assertThrows<ProtocolException> { MessageCodec.decodeServerbound(u.toByteArray()) }
+        // Hello announcing a huge extension list (its last field) with no data
+        val hello = MessageCodec.encodeServerbound(Hello(PROTOCOL_VERSION, emptyList()))
+        assertThrows<ProtocolException> { MessageCodec.decodeServerbound(replaceLastField(hello, 1) { varInt(Int.MAX_VALUE) }) }
+        // extension payload whose json (its last field) claims more bytes than present
+        val extension = MessageCodec.encodeServerbound(ExtensionMessage(ResourceId.of("a", "b"), ""))
+        assertThrows<ProtocolException> { MessageCodec.decodeServerbound(replaceLastField(extension, 1) { varInt(10_000) }) }
+        // invalid UTF-8 in the keybind id (the last field, "ab" = 2 bytes)
+        val key = MessageCodec.encodeServerbound(KeyPressed("ab"))
+        assertThrows<ProtocolException> {
+            MessageCodec.decodeServerbound(replaceLastField(key, 2) { byte(0xC3); byte(0x28) })
+        }
     }
+
+    /** A copy of the valid message [bytes] with its last [length] bytes replaced by what [write] writes. */
+    private fun replaceLastField(bytes: ByteArray, length: Int, write: ProtocolWriter.() -> Unit): ByteArray =
+        bytes.copyOf(bytes.size - length) + ProtocolWriter().apply(write).toByteArray()
 
     @Test
     fun `random garbage never throws anything but ProtocolException`() {

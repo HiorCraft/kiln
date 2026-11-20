@@ -6,14 +6,11 @@ import dev.kiln.server.api.screen.ScreenBuilder
 import dev.kiln.server.api.screen.ScreenDefinition
 import dev.kiln.server.api.screen.ScreenHandle
 import dev.kiln.server.api.screen.Viewport
+import dev.kiln.server.api.screen.screen
 import net.kyori.adventure.text.Component
 import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
 import org.bukkit.plugin.Plugin
-
-/** Scopes the kiln DSL builders so outer receivers are not accidentally used. */
-@DslMarker
-public annotation class KilnDsl
 
 // ---- Player extensions ----------------------------------------------------------------------------------------
 
@@ -22,11 +19,11 @@ public fun Player.openScreen(screen: ScreenDefinition): ScreenHandle = Kiln.get(
 
 /** Opens an ad-hoc screen; shorthand for `openScreen(screen(width, height, content))`. */
 public fun Player.openScreen(width: Int, height: Int, content: ScreenBuilder.() -> Unit): ScreenHandle =
-    openScreen(ScreenDefinition(width, height, false, content))
+    openScreen(screen(width, height, content))
 
 /** Opens an ad-hoc fullscreen screen; shorthand for `openScreen(screen(fullscreen = true, content))`. */
 public fun Player.openFullscreen(content: ScreenBuilder.() -> Unit): ScreenHandle =
-    openScreen(ScreenDefinition(0, 0, true, content))
+    openScreen(screen(fullscreen = true, content))
 
 /** See [Kiln.viewport]. */
 public val Player.kilnViewport: Viewport? get() = Kiln.get().viewport(this)

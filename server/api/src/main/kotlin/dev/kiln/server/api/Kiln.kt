@@ -152,8 +152,3 @@ public interface Kiln {
         public fun key(plugin: Plugin, value: String): NamespacedKey = NamespacedKey(plugin, value)
     }
 }
-
-/** Handle of a registration (listener, keybind, ...) that can be undone. */
-public fun interface Registration {
-    public fun unregister()
-}
