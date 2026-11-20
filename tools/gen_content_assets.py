@@ -159,6 +159,77 @@ def furniture_models() -> None:
         write_json(f"items/{name}.json", {"model": {"type": "minecraft:model", "model": f"{NS}:item/{name}"}})
 
 
+def golem() -> None:
+    """Stone golem for the custom entity demo: Bedrock geometry (front = -z), animations, 128x64 texture."""
+    def cube(origin, size, uv, mirror=False):
+        c = {"origin": origin, "size": size, "uv": uv}
+        if mirror:
+            c["mirror"] = True
+        return c
+
+    bones = [
+        {"name": "root", "pivot": [0, 0, 0]},
+        {"name": "body", "parent": "root", "pivot": [0, 20, 0], "cubes": [cube([-9, 20, -6], [18, 16, 12], [0, 0])]},
+        {"name": "head", "parent": "body", "pivot": [0, 36, -2], "cubes": [
+            cube([-5, 36, -8], [10, 10, 10], [0, 28]),
+            cube([-4, 40, -9], [3, 2, 1], [100, 0]),
+            cube([1, 40, -9], [3, 2, 1], [100, 0]),
+        ]},
+        {"name": "arm_left", "parent": "body", "pivot": [11, 34, 0], "cubes": [cube([9, 14, -3], [6, 22, 6], [60, 0])]},
+        {"name": "arm_right", "parent": "body", "pivot": [-11, 34, 0], "cubes": [cube([-15, 14, -3], [6, 22, 6], [60, 0], True)]},
+        {"name": "leg_left", "parent": "root", "pivot": [5, 20, 0], "cubes": [cube([2, 0, -3], [6, 20, 6], [60, 28])]},
+        {"name": "leg_right", "parent": "root", "pivot": [-5, 20, 0], "cubes": [cube([-8, 0, -3], [6, 20, 6], [60, 28], True)]},
+    ]
+    write_json("kiln/entity/golem.geo.json", {
+        "format_version": "1.12.0",
+        "minecraft:geometry": [{"description": {"identifier": "geometry.golem", "texture_width": 128, "texture_height": 64}, "bones": bones}],
+    })
+
+    def keys(*frames):
+        return {f"{t}": v for t, v in frames}
+
+    write_json("kiln/entity/golem.animation.json", {
+        "format_version": "1.8.0",
+        "animations": {
+            "animation.golem.idle": {"loop": True, "animation_length": 2.0, "bones": {
+                "body": {"position": keys((0.0, [0, 0, 0]), (1.0, [0, 0.4, 0]), (2.0, [0, 0, 0]))},
+                "head": {"rotation": keys((0.0, [0, 0, 0]), (1.0, [4, 0, 0]), (2.0, [0, 0, 0]))},
+            }},
+            "animation.golem.walk": {"loop": True, "animation_length": 1.0, "bones": {
+                "leg_left": {"rotation": keys((0.0, [-25, 0, 0]), (0.5, [25, 0, 0]), (1.0, [-25, 0, 0]))},
+                "leg_right": {"rotation": keys((0.0, [25, 0, 0]), (0.5, [-25, 0, 0]), (1.0, [25, 0, 0]))},
+                "arm_left": {"rotation": keys((0.0, [15, 0, 0]), (0.5, [-15, 0, 0]), (1.0, [15, 0, 0]))},
+                "arm_right": {"rotation": keys((0.0, [-15, 0, 0]), (0.5, [15, 0, 0]), (1.0, [-15, 0, 0]))},
+            }},
+            "animation.golem.smash": {"animation_length": 0.8, "bones": {
+                "arm_left": {"rotation": keys((0.0, [0, 0, 0]), (0.3, [-150, 0, 0]), (0.5, [-20, 0, 0]), (0.8, [0, 0, 0]))},
+                "arm_right": {"rotation": keys((0.0, [0, 0, 0]), (0.3, [-150, 0, 0]), (0.5, [-20, 0, 0]), (0.8, [0, 0, 0]))},
+                "body": {"rotation": keys((0.0, [0, 0, 0]), (0.3, [-10, 0, 0]), (0.5, [15, 0, 0]), (0.8, [0, 0, 0]))},
+            }},
+            "animation.golem.roar": {"animation_length": 1.2, "bones": {
+                "head": {"rotation": keys((0.0, [0, 0, 0]), (0.3, [-30, 0, 0]), (0.9, [-30, 0, 0]), (1.2, [0, 0, 0]))},
+                "arm_left": {"rotation": keys((0.0, [0, 0, 0]), (0.3, [0, 0, -45]), (0.9, [0, 0, -45]), (1.2, [0, 0, 0]))},
+                "arm_right": {"rotation": keys((0.0, [0, 0, 0]), (0.3, [0, 0, 45]), (0.9, [0, 0, 45]), (1.2, [0, 0, 0]))},
+            }},
+        },
+    })
+
+    rng = random.Random(4242)
+    img = Image.new("RGBA", (128, 64), (0, 0, 0, 0))
+    px = img.load()
+    for y in range(64):
+        for x in range(100):
+            shade = 105 + rng.randrange(-18, 19)
+            moss = rng.random() < 0.06
+            px[x, y] = (shade - 30, shade + 10, shade - 40, 255) if moss else (shade, shade, shade + 6, 255)
+    for y in range(0, 4):
+        for x in range(100, 108):
+            px[x, y] = (255, 170, 40, 255)  # glowing eyes
+    out = ROOT / "textures/entity/golem.png"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    img.save(out)
+
+
 if __name__ == "__main__":
     ruby_texture()
     rune_font()
@@ -166,5 +237,6 @@ if __name__ == "__main__":
     models()
     post_effect()
     furniture_models()
+    golem()
     lang()
     print("wrote", ROOT)
