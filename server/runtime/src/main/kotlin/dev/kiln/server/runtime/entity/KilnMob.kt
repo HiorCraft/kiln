@@ -26,6 +26,11 @@ class KilnMob(level: Level) : Zombie(net.minecraft.world.entity.EntityTypes.ZOMB
 
     override fun isSunSensitive(): Boolean = false
 
+    // Mob.aiStep burns every type tagged burn_in_daylight (zombie is) through this check, not isSunSensitive
+    override fun isSunBurnTick(): Boolean = false
+
+    override fun canPickUpLoot(): Boolean = false
+
     override fun convertsInWater(): Boolean = false
 
     override fun isBaby(): Boolean = false
