@@ -14,7 +14,7 @@ import org.luaj.vm2.LuaValue
 import java.io.File
 
 /**
- * The real `ui_kit` and `shop` extensions of the example server (`example-server/src/main/resources/extensions/`)
+ * The real `ui_kit` and `shop` extensions of the example server (`example/server/src/main/resources/extensions/`)
  * in the real sandbox: loading, component logic, client-side filtering, the shop flows and the render budget.
  */
 class ShopExtensionTest {
@@ -22,7 +22,7 @@ class ShopExtensionTest {
     private val shift = Mods(true, false, false)
 
     private fun extensionDir(id: String): File {
-        val candidates = listOf(File("../example-server/src/main/resources/extensions/$id"), File("example-server/src/main/resources/extensions/$id"))
+        val candidates = listOf(File("../example/server/src/main/resources/extensions/$id"), File("example/server/src/main/resources/extensions/$id"))
         return candidates.firstOrNull { it.isDirectory } ?: error("extension $id not found from ${File(".").absolutePath}")
     }
 

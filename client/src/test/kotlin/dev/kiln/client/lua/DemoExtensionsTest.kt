@@ -22,7 +22,7 @@ class DemoExtensionsTest {
     private val none = Mods(false, false, false)
 
     private fun extensionDir(id: String): File {
-        val candidates = listOf(File("../example-server/src/main/resources/extensions/$id"), File("example-server/src/main/resources/extensions/$id"))
+        val candidates = listOf(File("../example/server/src/main/resources/extensions/$id"), File("example/server/src/main/resources/extensions/$id"))
         return candidates.firstOrNull { it.isDirectory } ?: error("extension $id not found from ${File(".").absolutePath}")
     }
 
