@@ -63,6 +63,9 @@ class ExtensionHandshake(
         /** `true` if a Fabric mod with this id is installed (its namespace is off limits for extensions). */
         fun isModLoaded(id: String): Boolean = false
 
+        /** `true` if a loaded resource pack other than the extensions' own provides namespace [id] (mods, packs). */
+        fun isResourceNamespace(id: String): Boolean = false
+
         /**
          * Mounts [assets] (paths relative to `assets/` of all verified packages) as resource pack and reloads the
          * game's resources, before any extension is started; calls [done] on the client thread with `null` or a
@@ -133,7 +136,7 @@ class ExtensionHandshake(
         val announced = infos.sumOf { it.size.toLong() }
         if (announced > maxTotalUnpackedBytes) return fail("the server announces ${announced / 1024 / 1024} MiB of extensions (limit ${maxTotalUnpackedBytes / 1024 / 1024} MiB)")
         // before consent and download: an extension must not take over the namespace of the game, kiln or a mod
-        for (info in infos) ExtensionNamespaces.problem(info.id, io::isModLoaded)?.let { return fail(it) }
+        for (info in infos) ExtensionNamespaces.problem(info.id, io::isModLoaded, io::isResourceNamespace)?.let { return fail(it) }
         items = infos.map(::Item)
         if (io.isTrusted(grants)) {
             startDownload()

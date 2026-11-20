@@ -42,6 +42,8 @@ class ExtensionHandshakeTest {
         override fun reloadResources(assets: Map<String, ByteArray>, done: (error: String?) -> Unit) { events += "reload:${assets.keys.sorted()}"; reloadDone = done }
         val mods = HashSet<String>()
         override fun isModLoaded(id: String) = id in mods
+        val packNamespaces = HashSet<String>()
+        override fun isResourceNamespace(id: String) = id in packNamespaces
         var mounted = false
         override fun resourcesMounted() = mounted
         var covered = false
@@ -294,6 +296,19 @@ class ExtensionHandshakeTest {
             assertTrue(ready.error!!.contains("reserved namespace") && ready.error!!.contains("'$id'"), ready.error)
             assertTrue(io.events.none { it.startsWith("consent") || it == "progress" }, io.events.toString())
         }
+    }
+
+    @Test
+    fun `namespaces of the player's resource packs and mod assets fail the handshake`() {
+        val io = FakeIo(trusted = true)
+        io.packNamespaces += "faithful"
+        val h = ExtensionHandshake(io)
+        h.onWelcome(PROTOCOL_VERSION)
+        val data = zip("faithful")
+        h.onManifest(ExtensionManifest(listOf(info("faithful", data))))
+        assertEquals(Phase.FAILED, h.phase)
+        val ready = io.sent.single() as ExtensionsReady
+        assertTrue(ready.error!!.contains("resource"), ready.error)
     }
 
     @Test

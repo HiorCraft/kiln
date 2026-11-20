@@ -147,7 +147,20 @@ class LuaRuntime(
     private val clock: () -> Long = System::nanoTime,
 ) {
     private val hook = SandboxHook(limits)
-    val globals: Globals = LuaSandbox.createGlobals(hook, limits, print)
+    private var printWindowStart = Long.MIN_VALUE
+    private var printsInWindow = 0
+    val globals: Globals = LuaSandbox.createGlobals(hook, limits) { line ->
+        val now = clock()
+        if (printWindowStart == Long.MIN_VALUE || now - printWindowStart >= 1_000_000_000L) {
+            printWindowStart = now
+            printsInWindow = 0
+        }
+        printsInWindow++
+        when {
+            printsInWindow <= limits.maxPrintsPerSecond -> print(line)
+            printsInWindow == limits.maxPrintsPerSecond + 1 -> print("(more output suppressed: at most ${limits.maxPrintsPerSecond} lines per second)")
+        }
+    }
 
     init {
         hook.runtime = this

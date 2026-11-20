@@ -15,9 +15,11 @@ object ExtensionNamespaces {
      * Why [id] cannot be used as an extension namespace on this client: reserved ([Ids.RESERVED_NAMESPACES]) or
      * the id of an installed mod ([isModLoaded]); `null` if it is fine.
      */
-    fun problem(id: String, isModLoaded: (String) -> Boolean): String? {
+    fun problem(id: String, isModLoaded: (String) -> Boolean, isResourceNamespace: (String) -> Boolean = { false }): String? {
         Ids.reservedNamespaceProblem(id)?.let { return it }
         if (isModLoaded(id)) return "extension id '$id' is the id of an installed mod (it would replace that mod's textures and texts)"
+        // asset namespaces of mods can differ from their ids; resource packs of the player have their own
+        if (isResourceNamespace(id)) return "extension id '$id' is a namespace of a loaded mod or resource pack (it would replace its resources)"
         return null
     }
 

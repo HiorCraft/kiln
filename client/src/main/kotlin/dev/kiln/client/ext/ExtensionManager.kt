@@ -271,6 +271,9 @@ class ExtensionManager(
 
     override fun openScreen(session: LuaScreenSession): Boolean {
         if (!inWorld() || minecraft.player == null) return false
+        // never over the player's own screens (pause, chat, options, inventory): only over nothing or kiln screens
+        val current = minecraft.gui.screen()
+        if (current != null && current !is LuaScreen && current !is dev.kiln.client.screen.KilnScreen) return false
         minecraft.gui.setScreen(LuaScreen(session, this))
         return (minecraft.gui.screen() as? LuaScreen)?.session === session
     }

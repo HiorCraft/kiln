@@ -52,6 +52,9 @@ class LuaScreen(val session: LuaScreenSession, private val textures: ExtensionTe
 
     override fun extractRenderState(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int, a: Float) {
         session.render(GuiDrawTarget(graphics, font, textures, mouseX, mouseY), mouseX, mouseY)
+        // origin marker drawn by kiln, after the extension: a server menu cannot pass itself off as the game's own
+        val origin = "Server-Erweiterung: ${session.extension.name.take(48)}"
+        graphics.text(font, origin, width - font.width(origin) - 4, height - font.lineHeight - 2, 0xA0FFFFFF.toInt(), true)
     }
 
     // ---- input --------------------------------------------------------------------------------------------

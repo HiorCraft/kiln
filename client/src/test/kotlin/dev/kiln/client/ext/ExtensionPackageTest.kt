@@ -155,6 +155,25 @@ class ExtensionPackageTest {
         assertFalse(Files.exists(dir.resolve(Sha256.hex(info.sha256) + ".zip")))
     }
 
+    @Test
+    fun `the cache drops the least recently used packages above its size limit`(@TempDir dir: Path) {
+        val cache = ExtensionCache(dir, maxBytes = 250)
+        val a = ByteArray(100) { 1 }
+        val b = ByteArray(100) { 2 }
+        val c = ByteArray(100) { 3 }
+        cache.put(info(a), a)
+        Files.setLastModifiedTime(dir.resolve(Sha256.hex(info(a).sha256) + ".zip"), java.nio.file.attribute.FileTime.fromMillis(1_000))
+        cache.put(info(b), b)
+        Files.setLastModifiedTime(dir.resolve(Sha256.hex(info(b).sha256) + ".zip"), java.nio.file.attribute.FileTime.fromMillis(2_000))
+        // a is used again: b is now the oldest
+        assertArrayEquals(a, cache.get(info(a)))
+        cache.put(info(c), c)
+        assertArrayEquals(a, cache.get(info(a)))
+        assertNull(cache.get(info(b)))
+        assertArrayEquals(c, cache.get(info(c)))
+        assertTrue(cache.sizeBytes() <= 250)
+    }
+
     // ---- trust ------------------------------------------------------------------------------------------------
 
     @Test

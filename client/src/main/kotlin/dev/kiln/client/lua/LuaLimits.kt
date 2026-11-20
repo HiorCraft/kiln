@@ -38,6 +38,8 @@ data class LuaLimits(
      * estimate only runs between calls, so this keeps a single call from filling the Java heap.
      */
     val maxAllocationPerCall: Long = 32L shl 20,
+    /** Lines of `print` per second; more are dropped (one note says so), so a script cannot fill the log. */
+    val maxPrintsPerSecond: Int = 20,
     /** Maximum number of values `table.unpack` may return. */
     val maxUnpack: Int = 4_096,
 )

@@ -159,6 +159,19 @@ class LuaSandboxTest {
     }
 
     @Test
+    fun `print is rate limited so a script cannot flood the log`() {
+        val out = ArrayList<String>()
+        var now = 0L
+        val rt = LuaRuntime("p", print = { out += it }, clock = { now })
+        eval(rt, "for i = 1, 1000 do print(i) end")
+        assertEquals(LuaLimits().maxPrintsPerSecond + 1, out.size, out.toString())
+        assertTrue(out.last().contains("suppressed"), out.last())
+        now += 1_000_000_000L
+        eval(rt, "print('again')")
+        assertEquals("again", out.last())
+    }
+
+    @Test
     fun `many large strings in one call hit the allocation budget`() {
         val rt = runtime(LuaLimits(maxAllocationPerCall = 32L shl 20))
         val e = assertThrows(LuaScriptException::class.java) {

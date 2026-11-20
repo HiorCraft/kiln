@@ -125,10 +125,16 @@ object ServerKeybinds {
     ): Active {
         val defaultKey = parseKey(defaultKeyName)
         DynamicTranslations.put(name, displayName)
+        val taken = Minecraft.getInstance().options.keyMappings.map { it.saveString() }
         val mapping = KeyMapping(name, defaultKey.type, defaultKey.value, category(categoryName), order)
-        store.get(server, storeId)?.let { stored ->
+        val stored = store.get(server, storeId)
+        if (stored != null) {
             runCatching { InputConstants.getKey(stored) }.onSuccess(mapping::setKey)
                 .onFailure { logger.warn("Invalid stored key '{}' for keybind '{}'", stored, storeId) }
+        } else if (KeyConflicts.startsUnbound(defaultKey.name, taken)) {
+            // a server must not take over a key the game, a mod or another keybind already uses (W, attack, ...)
+            logger.info("Keybind '{}' starts unbound: its default key {} is already used", storeId, defaultKey.name)
+            mapping.setKey(InputConstants.UNKNOWN)
         }
         return Active(storeId, mapping, defaultKey.name, extension, localId, handler)
     }
@@ -253,4 +259,13 @@ object ServerKeybinds {
         logger.warn("Unknown default key '{}', keybind left unbound", name)
         InputConstants.UNKNOWN
     }
+}
+
+/** Default keys of server keybinds that are already in use. */
+object KeyConflicts {
+    /** `true` if [defaultKey] (a key name like `key.keyboard.w`) is bound to one of the [taken] keybinds already. */
+    fun startsUnbound(defaultKey: String, taken: Collection<String>): Boolean =
+        defaultKey != UNBOUND && defaultKey in taken
+
+    private const val UNBOUND = "key.keyboard.unknown"
 }

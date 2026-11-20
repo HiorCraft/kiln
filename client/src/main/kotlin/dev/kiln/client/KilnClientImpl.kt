@@ -155,6 +155,11 @@ class KilnClientImpl(
 
         override fun isModLoaded(id: String) = FabricLoader.getInstance().isModLoaded(id)
 
+        override fun isResourceNamespace(id: String): Boolean =
+            Minecraft.getInstance().resourceManager.listPacks().anyMatch { pack ->
+                pack.packId() != KilnPackSource.PACK_ID && id in pack.getNamespaces(net.minecraft.server.packs.PackType.CLIENT_RESOURCES)
+            }
+
         override fun resourcesMounted(): Boolean = KilnPackSource.isMounted()
 
         override fun screenCovered(): Boolean = Minecraft.getInstance().gui.overlay() != null

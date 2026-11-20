@@ -403,7 +403,7 @@ local ro = kiln.readonly(t) -- schreibgeschützte Sicht ohne Halter (für Rückg
 ### Screens
 ```lua
 kiln.ui.screen(id, def)               -- id "<ext>:<name>" oder "<name>" (eigener Namensraum), max. 32
-kiln.ui.open(id [, args]) -> bool      -- false: nicht in der Welt / Handshake nicht fertig
+kiln.ui.open(id [, args]) -> bool      -- false: nicht in der Welt / Handshake nicht fertig / ein Screen des Spiels (Pause, Chat, Inventar, Optionen) ist offen
 kiln.ui.close() -> bool                -- schließt den eigenen offenen Screen (close-Grund "closed")
 kiln.ui.sound(name [, pitch = 1])      -- click | pling | success | error | page | toast; pitch 0.5..2; ≤ 10/s
 kiln.ui.viewport() -> { width, height, scale } | nil   -- GUI-skalierte Fenstergröße, GUI-Scale
@@ -651,3 +651,30 @@ Reihenfolge Z, Y, X). `KilnModelRenderer` ersetzt per Mixin auf `EntityRenderDis
 markierter Entities, `LivingEntityDimensionsMixin` setzt die Hitbox. Der Kopf-Knochen `head` folgt der Blickrichtung.
 Beim Tod kippt das Modell wie in Vanilla zur Seite, außer das Modell hat eine Animation `death` (läuft dann und
 bleibt auf dem letzten Frame).
+
+## Sicherheits-Audit (Sandbox und Rechte)
+
+Unabhängige Prüfung der Lua-Sandbox: kein Ausbruch (keine Java-Klassen, Dateien, Netz, `debug`, `load`, Bytecode;
+die geteilte String-Metatable ist schreibgeschützt) und kein Ausleihen von Rechten gefunden. Behoben wurden Wege,
+den Client abstürzen zu lassen oder einzufrieren:
+
+- **Speicher in einem Aufruf:** Jeder Aufruf darf höchstens `maxAllocationPerCall` (32 MiB) an Strings erzeugen
+  (`rep`, `format`, `gsub`, `upper`, `lower`, `reverse`, `..`, `table.concat`); `format` wird vor dem Bauen begrenzt;
+  ein `OutOfMemoryError` beendet nur den Aufruf (die Extension wird entladen).
+- **Mustersuche:** `KilnStringLib` ist LuaJs String-Bibliothek mit einem Matcher, der jeden Schritt vom
+  Instruktionsbudget abzieht; Backtracking-Muster enden wie eine Endlosschleife.
+- **Zeichnen:** `g:`-Aufrufe kosten Instruktionen nach ihrer Arbeit (8 je Aufruf, Bögen nach Fläche, Text nach Länge,
+  Items pauschal).
+- **Download:** Manifeste, die mehr als die Gesamtgrenze ankündigen, scheitern vor der Zustimmung; Puffer wachsen mit
+  den Daten.
+- **Zustimmung:** „Ressourcen“ nennt Shader (Post-Effekte laufen auf der GPU des Spielers).
+- **`print`:** höchstens 20 Zeilen pro Sekunde und Extension, danach ein Hinweis.
+- **Screens:** `ui.open` ersetzt keine Screens des Spiels; Lua-Screens tragen unten rechts die Herkunft
+  („Server-Erweiterung: <Name>“), von kiln gezeichnet.
+- **Namensräume:** Eine Extension-ID darf kein Namensraum eines geladenen Ressourcenpakets oder einer Mod sein.
+- **Cache:** `kiln/cache` hält höchstens 512 MiB; ältere Pakete (zuletzt benutzt) werden gelöscht.
+- **Tasten:** Ist die Standard-Taste einer Server-Tastenbelegung schon belegt (Spiel, Mod, andere Belegung), startet
+  sie unbelegt.
+
+Bekannte Grenze: Bilder, Schriften und Sounds werden mit Minecrafts nativen Decodern gelesen (wie bei Vanilla-
+Server-Ressourcenpaketen).
