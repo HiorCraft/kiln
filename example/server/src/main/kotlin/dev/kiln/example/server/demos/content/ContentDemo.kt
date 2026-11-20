@@ -90,6 +90,15 @@ class ContentDemo(private val plugin: JavaPlugin) : TabExecutor {
             height = 2.9
             health = 80.0
             speed = 0.22
+            // vanilla iron golem sounds, a bit deeper (keys of extension sounds work the same)
+            sounds {
+                ambient = Key.key("minecraft", "entity.iron_golem.repair")
+                hurt = Key.key("minecraft", "entity.iron_golem.hurt")
+                death = Key.key("minecraft", "entity.iron_golem.death")
+                step = Key.key("minecraft", "entity.iron_golem.step")
+                stepInterval = 12
+                pitch = 0.8f
+            }
             behavior {
                 targeting(range = 16.0)
                 // smash: wind up, slam, damage and knock back everything close, then a cooldown
@@ -100,6 +109,7 @@ class ContentDemo(private val plugin: JavaPlugin) : TabExecutor {
                         animate("smash")
                         wait(10)
                         run {
+                            playSound(Key.key("minecraft", "entity.iron_golem.attack"), 1.2f, 0.7f)
                             val damage = if (state == "enraged") 12.0 else 8.0
                             for (player in nearbyPlayers(3.6)) {
                                 damage(player, damage)
@@ -117,6 +127,7 @@ class ContentDemo(private val plugin: JavaPlugin) : TabExecutor {
                 state("enraged") {
                     onEnter {
                         animate("roar")
+                        playSound(Key.key("minecraft", "entity.ravager.roar"), 1.5f, 0.8f)
                         self.getAttribute(Attribute.MOVEMENT_SPEED)?.baseValue = 0.3
                     }
                 }

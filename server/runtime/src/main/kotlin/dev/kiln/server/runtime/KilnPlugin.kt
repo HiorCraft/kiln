@@ -101,6 +101,7 @@ class KilnPlugin : JavaPlugin(), Listener {
         server.scheduler.runTaskTimer(this, Runnable { bridge.flushAll() }, 20L, 20L)
         server.scheduler.runTaskTimer(this, Runnable { handshakes.sweep() }, 20L * 60, 20L * 60)
         server.scheduler.runTaskTimer(this, Runnable { bridge.enchantments.tick() }, 20L, 20L)
+        server.scheduler.runTaskTimer(this, Runnable { bridge.entities.tick() }, 10L, 10L)
         // dependencies can only be checked once every plugin had the chance to register its extensions
         server.scheduler.runTask(this, Runnable { bridge.extensionRegistry.logProblems() })
 

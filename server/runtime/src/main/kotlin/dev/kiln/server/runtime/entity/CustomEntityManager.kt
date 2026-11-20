@@ -247,9 +247,27 @@ class CustomEntityManager(
         if (event.entity.uniqueId in live) send(event.player, EntityTraitsRemove(listOf(event.entity.entityId)))
     }
 
+    /** Every 10 ticks: ambient and step sounds. */
+    fun tick() {
+        for (entity in live.values) {
+            val sounds = entity.type.definition.sounds
+            if (!entity.bukkit.isValid) continue
+            sounds.ambient?.let { if (Random.nextDouble() < AMBIENT_CHANCE) entity.sound(it) }
+            sounds.step?.let { step ->
+                val moving = entity.bukkit.pathfinder.hasPath() || entity.bukkit.velocity.clone().setY(0).lengthSquared() > 0.0004
+                entity.stepTicks += 10
+                if (moving && entity.bukkit.isOnGround && entity.stepTicks >= sounds.stepInterval) {
+                    entity.stepTicks = 0
+                    entity.sound(step, 0.6f)
+                }
+            }
+        }
+    }
+
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     fun onDamage(event: EntityDamageEvent) {
         val entity = live[event.entity.uniqueId] ?: return
+        entity.type.definition.sounds.hurt?.let { if (entity.bukkit.health - event.finalDamage > 0) entity.sound(it) }
         val handler = entity.type.definition.onDamage ?: return
         val source = (event as? EntityDamageByEntityEvent)?.damager
         entity.hook("onDamage") { handler(entity.context, source, event.finalDamage) }
@@ -259,6 +277,7 @@ class CustomEntityManager(
     fun onDeath(event: EntityDeathEvent) {
         val entity = live.remove(event.entity.uniqueId) ?: return
         event.drops.clear() // no zombie loot; onDeath decides
+        entity.type.definition.sounds.death?.let { entity.sound(it) }
         entity.type.definition.onDeath?.let { handler -> entity.hook("onDeath") { handler(entity.context) } }
     }
 
@@ -267,6 +286,9 @@ class CustomEntityManager(
 
     companion object {
         val CHUNK_KEY: NamespacedKey = NamespacedKey("kiln", "entities")
+
+        /** Per 10 ticks: on average one ambient sound every 8 seconds. */
+        private const val AMBIENT_CHANCE = 1.0 / 16
     }
 }
 
@@ -290,6 +312,7 @@ class LiveEntity(
     val bukkit: Mob,
 ) : CustomEntity {
     var stateName: String = "default"
+    var stepTicks = 0
     val cooldowns = Cooldowns()
     val persistentAnimations = LinkedHashMap<String, PlayAnimation>()
     override val memory: MutableMap<String, Any> = HashMap()
@@ -312,6 +335,12 @@ class LiveEntity(
     override fun playAnimation(name: String, playback: AnimationPlayback, speed: Float) = manager.play(this, name, playback, speed)
 
     override fun stopAnimation(name: String?) = manager.stop(this, name)
+
+    fun sound(key: Key, volumeFactor: Float = 1f, pitch: Float? = null) {
+        val sounds = type.definition.sounds
+        bukkit.world.playSound(bukkit.location, key.asString(), org.bukkit.SoundCategory.HOSTILE, sounds.volume * volumeFactor,
+            pitch ?: (sounds.pitch * (0.9f + Random.nextFloat() * 0.2f)))
+    }
 
     internal inline fun hook(what: String, block: () -> Unit) {
         try {
@@ -355,6 +384,8 @@ class LiveEntity(
         }
 
         override fun random(): Double = Random.nextDouble()
+        override fun playSound(sound: Key, volume: Float, pitch: Float) =
+            bukkit.world.playSound(bukkit.location, sound.asString(), org.bukkit.SoundCategory.HOSTILE, volume, pitch)
     }
 }
 

@@ -79,6 +79,12 @@ public class CustomEntityBuilder {
     public var headBone: Boolean = true
 
     public val behavior: BehaviorBuilder = BehaviorBuilder()
+    public val sounds: EntitySounds = EntitySounds()
+
+    /** Sounds of the entity (sound event keys, also from extension resources). */
+    public fun sounds(block: EntitySounds.() -> Unit) {
+        sounds.block()
+    }
     public var onSpawn: (EntityContext.() -> Unit)? = null
     public var onDamage: (EntityContext.(source: Entity?, amount: Double) -> Unit)? = null
     public var onDeath: (EntityContext.() -> Unit)? = null
@@ -99,6 +105,20 @@ public class CustomEntityBuilder {
     public fun onDeath(handler: EntityContext.() -> Unit) {
         onDeath = handler
     }
+}
+
+/** Sound events a custom entity plays by itself; `null` = silent. */
+public class EntitySounds {
+    /** Now and then while alive (about every 8 seconds on average). */
+    public var ambient: Key? = null
+    public var hurt: Key? = null
+    public var death: Key? = null
+
+    /** While walking, every [stepInterval] ticks. */
+    public var step: Key? = null
+    public var stepInterval: Int = 10
+    public var volume: Float = 1f
+    public var pitch: Float = 1f
 }
 
 /** Goals (highest priority = lowest number wins), target selection and states of a custom entity. */
@@ -256,6 +276,9 @@ public interface EntityContext {
     /** `true` when cooldown [name] is over (or was never started). */
     public fun cooldownReady(name: String): Boolean
     public fun cooldown(name: String, ticks: Int)
+
+    /** Plays sound event [sound] at the entity for everyone near. */
+    public fun playSound(sound: Key, volume: Float = 1f, pitch: Float = 1f)
     public fun switchTo(state: String)
     public fun random(): Double
 }
