@@ -70,6 +70,9 @@ class ExtensionHandshake(
          */
         fun reloadResources(assets: Map<String, ByteArray>, done: (error: String?) -> Unit) = done(null)
 
+        /** `true` while something (Minecraft's resource reload overlay) hides the loading screen. */
+        fun screenCovered(): Boolean = false
+
         /** `true` while resources of an earlier handshake are mounted (a backend switch behind a proxy). */
         fun resourcesMounted(): Boolean = false
     }
@@ -267,6 +270,11 @@ class ExtensionHandshake(
             return
         }
         if (items.all { it.status == Status.DONE }) {
+            // the hold starts once the loading screen is visible again (the reload overlay fades out first)
+            if (io.screenCovered()) {
+                finishedAt = 0L
+                return
+            }
             if (finishedAt == 0L) finishedAt = clock()
             if (clock() - finishedAt >= minFinishMillis) ready()
         }

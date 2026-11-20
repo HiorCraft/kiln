@@ -157,6 +157,8 @@ class KilnClientImpl(
 
         override fun resourcesMounted(): Boolean = KilnPackSource.isMounted()
 
+        override fun screenCovered(): Boolean = Minecraft.getInstance().gui.overlay() != null
+
         override fun reloadResources(assets: Map<String, ByteArray>, done: (error: String?) -> Unit) {
             // backend switch to a server with the same resources: keep them (a reload takes seconds)
             if (KilnPackSource.matches(assets)) {

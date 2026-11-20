@@ -44,6 +44,8 @@ class ExtensionHandshakeTest {
         override fun isModLoaded(id: String) = id in mods
         var mounted = false
         override fun resourcesMounted() = mounted
+        var covered = false
+        override fun screenCovered() = covered
     }
 
     private fun zip(id: String, padding: Int = 0): ByteArray {
@@ -397,9 +399,15 @@ class ExtensionHandshakeTest {
         runToEnd(h)
         val beforeReload = h.progress
         assertTrue(beforeReload in 0.5f..0.9f, "downloaded and verified: $beforeReload")
+        io.covered = true // Minecraft's reload overlay still fades out
         io.reloadDone!!(null)
         runToEnd(h)
         assertEquals(1f, h.progress)
+        now += 5_000
+        runToEnd(h)
+        assertTrue(io.sent.none { it is ExtensionsReady }, "held while covered: ${io.sent}")
+        io.covered = false
+        runToEnd(h)
         assertTrue(io.sent.none { it is ExtensionsReady }, io.sent.toString())
         now += 600
         runToEnd(h)
