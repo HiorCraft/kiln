@@ -91,4 +91,18 @@ class ExtensionRegistryTest {
         assertEquals(listOf("kiln_example"), registry.packages.map { it.id }, "names merely starting with kiln stay allowed")
         assertTrue(records.any { it.level == Level.SEVERE && it.message.contains("'minecraft' is a reserved namespace") })
     }
+
+    @Test
+    fun `the total unpacked size of all extensions is capped`(@TempDir dir: Path) {
+        val one = ExtensionPackager.build("pa", mapOf(
+            "extension.json" to """{"id":"pa","version":"1","name":"pa","permissions":[]}""".toByteArray(),
+            "main.lua" to ByteArray(0),
+        )).unpackedSize
+        val registry = ExtensionRegistry(logger, messenger, maxTotalUnpackedBytes = one * 2)
+        registry.register(plugin, "pa", ExtensionSource.Directory(write(dir, "pa")))
+        registry.register(plugin, "pb", ExtensionSource.Directory(write(dir, "pb")))
+        val error = assertThrows<IllegalArgumentException> { registry.register(plugin, "pc", ExtensionSource.Directory(write(dir, "pc"))) }
+        assertTrue(error.message!!.contains("unpacked"), error.message)
+        assertEquals(listOf("pa", "pb"), registry.packages.map { it.id })
+    }
 }

@@ -19,7 +19,13 @@ import dev.kiln.protocol.ServerboundMessage
  *
  * [items] and the byte counters feed the loading screen.
  */
-class ExtensionHandshake(private val io: Io) {
+class ExtensionHandshake(
+    private val io: Io,
+    /** All packages together, unpacked (held in memory); a server sending more fails the handshake. */
+    private val maxTotalUnpackedBytes: Long = ProtocolLimits.MAX_TOTAL_UNPACKED_BYTES,
+) {
+    private var unpackedBytes = 0L
+
     interface Io {
         fun send(message: ServerboundMessage)
         fun isTrusted(grants: List<TrustStore.Grant>): Boolean
@@ -180,7 +186,12 @@ class ExtensionHandshake(private val io: Io) {
         if (toVerify != null) {
             toVerify.status = Status.VERIFYING
             try {
-                toVerify.pkg = verify(toVerify)
+                toVerify.pkg = verify(toVerify).also { pkg ->
+                    unpackedBytes += pkg.files.values.sumOf { it.size.toLong() }
+                    if (unpackedBytes > maxTotalUnpackedBytes) {
+                        throw ExtensionPackageException("the server's extensions are larger than ${maxTotalUnpackedBytes / 1024 / 1024} MiB unpacked")
+                    }
+                }
                 toVerify.zip = null
                 toVerify.status = Status.STARTING
             } catch (e: ExtensionPackageException) {

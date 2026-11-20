@@ -74,6 +74,12 @@ public object ProtocolLimits {
     /** Maximum unpacked size of one extension package (all files together), in bytes; since v6. */
     public const val MAX_EXTENSION_UNPACKED_BYTES: Int = 64 * 1024 * 1024
 
+    /**
+     * Maximum unpacked size of all extension packages of a server together (they are held in memory on the client),
+     * in bytes; since v6.
+     */
+    public const val MAX_TOTAL_UNPACKED_BYTES: Long = 256L * 1024 * 1024
+
     /** Maximum number of files in one extension package; since v6. */
     public const val MAX_EXTENSION_FILES: Int = 4096
 

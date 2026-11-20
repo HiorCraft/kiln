@@ -36,6 +36,8 @@ class ExtensionRegistry(
     private val messenger: ExtensionMessenger,
     /** At most this many packages fit into one manifest; more are rejected when they are registered. */
     private val maxExtensions: Int = ProtocolLimits.MAX_MANIFEST_EXTENSIONS,
+    /** All packages together, unpacked (clients hold them in memory); more is rejected when registering. */
+    private val maxTotalUnpackedBytes: Long = ProtocolLimits.MAX_TOTAL_UNPACKED_BYTES,
 ) {
     private val byId = LinkedHashMap<String, ExtensionImpl>()
 
@@ -77,6 +79,13 @@ class ExtensionRegistry(
             is ExtensionSource.PluginResource -> ExtensionFiles.fromJar(jarOf(source.plugin), source.path)
         }
         val pkg = ExtensionPackager.build(id, files)
+        val total = byId.values.sumOf { it.pkg.unpackedSize } + pkg.unpackedSize
+        if (total > maxTotalUnpackedBytes) {
+            throw InvalidExtensionException(
+                "Extensions too large: with '$id' all packages would be $total bytes unpacked, at most $maxTotalUnpackedBytes " +
+                    "(ProtocolLimits.MAX_TOTAL_UNPACKED_BYTES); '$id' is not registered",
+            )
+        }
         val extension = ExtensionImpl(this, plugin, pkg)
         byId[id] = extension
         snapshot()

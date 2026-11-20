@@ -40,6 +40,8 @@ class ExtensionPackage(
     val icon: ByteArray? = null,
     /** `extension.json` `dependencies` (ids + optional version ranges), in declaration order. */
     val dependencies: List<ExtensionDependency> = emptyList(),
+    /** Sum of all file sizes (what the client holds in memory). */
+    val unpackedSize: Long = 0,
 ) {
     val sha256Hex: String get() = info.sha256Hex
 
@@ -120,7 +122,7 @@ object ExtensionPackager {
             throw InvalidExtensionException("Package too large (${zip.size} > ${ProtocolLimits.MAX_EXTENSION_PACKAGE_BYTES} bytes zipped)")
         }
         val sha256 = MessageDigest.getInstance("SHA-256").digest(zip)
-        return ExtensionPackage(id, version, name, main, permissions, zip, sha256, sorted, icon, dependencies)
+        return ExtensionPackage(id, version, name, main, permissions, zip, sha256, sorted, icon, dependencies, total)
     }
 
     fun validatePath(path: String) {

@@ -389,4 +389,16 @@ class ExtensionHandshakeTest {
         assertEquals(Phase.DONE, h.phase)
         assertFalse("reload" in io.events)
     }
+
+    @Test
+    fun `the total unpacked size of all packages is capped`() {
+        val io = FakeIo(trusted = true, cache = mutableMapOf("a" to a, "b" to b))
+        val h = ExtensionHandshake(io, maxTotalUnpackedBytes = ProtocolLimits.MAX_EXTENSION_CHUNK_BYTES.toLong())
+        h.onWelcome(PROTOCOL_VERSION)
+        h.onManifest(manifest)
+        runToEnd(h)
+        assertEquals(Phase.FAILED, h.phase)
+        val ready = io.sent.last() as ExtensionsReady
+        assertTrue(ready.error!!.contains("unpacked"), ready.error)
+    }
 }
