@@ -349,3 +349,26 @@ Modelle reichen); Lizenzfreiheit ist Pflicht.
 - Ob `PlayerTrackEntityEvent` reicht oder ein NMS-Hook am `ServerEntity`/`ChunkMap` nötig ist, um
   `EntityTraits` nach dem Spawn-Paket zu senden.
 - Aufteilung in Commits/PRs pro Phase (0 → 1 → 2 → 3), jede Phase mit grünem `./gradlew build`.
+
+## Ergänzung (2026-11-20, nach Phase 1): Creative-Tabs und Umsetzung der Möbel
+
+### Creative-Tabs (vom User gewünscht)
+- Der Creative-Bildschirm wird nur auf dem Client gebaut. Die Kiln-Runtime registriert beim Start **8 leere Tabs**
+  (`kiln:server_0..7`); Titel (Übersetzungsschlüssel, über `DynamicTranslations` gefüllt), Icon und Inhalt kommen vom
+  Server. Leere Kategorie-Tabs blendet Vanilla aus, ohne Server-Inhalte sieht man also nichts.
+- Zusätzlich können Items in **Vanilla-Tabs** einsortiert werden (Fabric `CreativeModeTabEvents.MODIFY_OUTPUT_ALL`).
+- Protokoll v7: S→C `CreativeTabs(tabs)` in der Play-Phase (nach dem Join und bei Änderungen); jeder Eintrag: `id`,
+  `title` (Component-JSON), `icon` und `items` als `ItemStackData` (mit NBT), `target` = `null` (eigener Tab) oder
+  Vanilla-Tab-Id. Limits: ≤ 8 eigene Tabs, ≤ 512 Items je Eintrag, ≤ 32 Einträge.
+- Herausnehmen ist Vanilla (`SetCreativeModeSlot` mit dem vollen Stack): die Stacks sind echte Custom Items.
+- API: `kiln.creativeTabs.register(plugin, key) { title; icon; add(...) }` und `addToVanillaTab(plugin, tab, stacks)`.
+
+### Möbel – Persistenz (Builder-Entscheidung, ersetzt „Persistenz“ in Abschnitt 2)
+Statt persistenter Entities, die beim Laden durch die NMS-Unterklasse ersetzt werden müssten (UUID-Tausch, NBT-Kopie),
+speichert Kiln Möbel im **Chunk-PDC** (`kiln:furniture`: Typ, Position, Gier, Gruppen-UUID) und erzeugt beim Laden
+eines Chunks **nicht-persistente** Teile (`ItemDisplay` + `KilnInteraction`); beim Entladen verschwinden sie von selbst.
+Ohne Kiln bleibt nichts Sichtbares in der Welt, die Daten bleiben im Chunk und kommen mit dem Plugin zurück.
+Feste Hitboxen: Server-Unterklasse `KilnInteraction` (`canBeCollidedWith → true`), Client erfährt per v7-Nachricht
+`EntityTraits(entityId, solid)` / `EntityTraitsRemove(entityId)` (beim Tracken/Enttracken), welche Interaction-Entities
+fest sind. Abbauen: Linksklick auf eine Hitbox (`PrePlayerAttackEntityEvent`); Platzieren: Rechtsklick auf einen Block
+mit dem Möbel-Item.
