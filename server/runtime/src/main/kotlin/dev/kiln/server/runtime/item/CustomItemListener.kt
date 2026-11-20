@@ -1,6 +1,7 @@
 package dev.kiln.server.runtime.item
 
 import org.bukkit.entity.Player
+import org.bukkit.event.Event
 import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
@@ -16,7 +17,7 @@ class CustomItemListener(private val registry: CustomItemRegistry) : Listener {
     fun onInteract(event: PlayerInteractEvent) {
         if (event.action != Action.RIGHT_CLICK_AIR && event.action != Action.RIGHT_CLICK_BLOCK) return
         // right clicks into the air arrive cancelled by default; what counts is whether using the item is denied
-        if (event.useItemInHand() == org.bukkit.event.Event.Result.DENY) return
+        if (event.useItemInHand() == Event.Result.DENY) return
         val stack = event.item ?: return
         val item = registry.of(stack) as? CustomItemImpl ?: return
         val hook = item.definition.onUse ?: return

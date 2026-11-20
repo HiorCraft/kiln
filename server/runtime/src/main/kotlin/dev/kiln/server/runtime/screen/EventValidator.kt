@@ -1,23 +1,16 @@
 package dev.kiln.server.runtime.screen
 
-import dev.kiln.protocol.Button
-import dev.kiln.protocol.Checkbox
-import dev.kiln.protocol.Custom
-import dev.kiln.protocol.Dropdown
-import dev.kiln.protocol.ItemSlot
-import dev.kiln.protocol.ModalDismiss
-import dev.kiln.protocol.Panel
-import dev.kiln.protocol.ScreenClick
-import dev.kiln.protocol.ScreenInput
-import dev.kiln.protocol.Slider
-import dev.kiln.protocol.TextField
-
-/** Outcome of checking a client screen event against the screen state the server last sent. */
-sealed interface Validation {
-    data object Valid : Validation
-
-    data class Invalid(val reason: String) : Validation
-}
+import dev.kiln.protocol.element.Button
+import dev.kiln.protocol.element.Checkbox
+import dev.kiln.protocol.element.Custom
+import dev.kiln.protocol.element.Dropdown
+import dev.kiln.protocol.element.ItemSlot
+import dev.kiln.protocol.message.ModalDismiss
+import dev.kiln.protocol.element.Panel
+import dev.kiln.protocol.message.ScreenClick
+import dev.kiln.protocol.message.ScreenInput
+import dev.kiln.protocol.element.Slider
+import dev.kiln.protocol.element.TextField
 
 /**
  * Checks client screen events against the open screen. Pure function of the event and the last sent tree, so it

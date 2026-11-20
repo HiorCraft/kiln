@@ -13,7 +13,7 @@ import java.io.IOException
 import java.io.StringReader
 import java.lang.reflect.Type
 
-/** JSON of [dev.kiln.protocol.ExtensionMessage]s: strict parsing with a nesting limit, Gson binding. */
+/** JSON of [dev.kiln.protocol.message.ExtensionMessage]s: strict parsing with a nesting limit, Gson binding. */
 object ExtensionJson {
     const val MAX_DEPTH = 16
 

@@ -1,9 +1,6 @@
 package dev.kiln.server.runtime.extension
 
-import dev.kiln.protocol.ExtensionChunk
-import dev.kiln.protocol.ProtocolLimits
 import java.io.IOException
-import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.zip.ZipFile
@@ -19,7 +16,7 @@ object ExtensionFiles {
 
     fun fromDirectory(dir: Path): Map<String, ByteArray> {
         if (!dir.isDirectory()) throw InvalidExtensionException("Not a directory: $dir")
-        val budget = Budget()
+        val budget = ReadBudget()
         val result = LinkedHashMap<String, ByteArray>()
         Files.walk(dir).use { stream ->
             for (file in stream) {
@@ -34,41 +31,33 @@ object ExtensionFiles {
     }
 
     /** Zip with files at the root, or all of them inside one top-level `<id>/` folder (stripped). */
-    fun fromZip(zipPath: Path, id: String): Map<String, ByteArray> {
-        val budget = Budget()
-        val raw = LinkedHashMap<String, ByteArray>()
-        try {
-            ZipFile(zipPath.toFile()).use { zip ->
-                for (entry in zip.entries()) {
-                    if (entry.isDirectory) continue
-                    budget.file(entry.name)
-                    raw[entry.name] = zip.getInputStream(entry).use { budget.read(entry.name, it) }
-                }
-            }
-        } catch (e: IOException) {
-            throw InvalidExtensionException("Cannot read zip $zipPath: ${e.message}", e)
-        }
-        return stripPrefix(raw, "$id/")
-    }
+    fun fromZip(zipPath: Path, id: String): Map<String, ByteArray> =
+        stripPrefix(readZip(zipPath, "zip $zipPath") { it }, "$id/")
 
     /** Folder [resourcePath] inside the jar at [jarPath] (a plugin jar). */
     fun fromJar(jarPath: Path, resourcePath: String): Map<String, ByteArray> {
         val prefix = resourcePath.trim('/') + "/"
-        val budget = Budget()
+        val result = readZip(jarPath, "$jarPath") { name -> name.takeIf { it.startsWith(prefix) }?.removePrefix(prefix) }
+        if (result.isEmpty()) throw InvalidExtensionException("No files under '$prefix' in $jarPath")
+        return result
+    }
+
+    /** The files of the zip at [zipPath] that [pathOf] maps to a package path (`null` = skip), within the budget. */
+    private fun readZip(zipPath: Path, description: String, pathOf: (entryName: String) -> String?): Map<String, ByteArray> {
+        val budget = ReadBudget()
         val result = LinkedHashMap<String, ByteArray>()
         try {
-            ZipFile(jarPath.toFile()).use { zip ->
+            ZipFile(zipPath.toFile()).use { zip ->
                 for (entry in zip.entries()) {
-                    if (entry.isDirectory || !entry.name.startsWith(prefix)) continue
-                    val path = entry.name.removePrefix(prefix)
+                    if (entry.isDirectory) continue
+                    val path = pathOf(entry.name) ?: continue
                     budget.file(path)
                     result[path] = zip.getInputStream(entry).use { budget.read(path, it) }
                 }
             }
         } catch (e: IOException) {
-            throw InvalidExtensionException("Cannot read $jarPath: ${e.message}", e)
+            throw InvalidExtensionException("Cannot read $description: ${e.message}", e)
         }
-        if (result.isEmpty()) throw InvalidExtensionException("No files under '$prefix' in $jarPath")
         return result
     }
 
@@ -78,37 +67,4 @@ object ExtensionFiles {
         } else {
             files
         }
-
-    private class Budget {
-        private var files = 0
-        private var bytes = 0L
-
-        fun file(path: String) {
-            if (++files > ExtensionPackager.MAX_FILES) throw InvalidExtensionException("Too many files (> ${ExtensionPackager.MAX_FILES})")
-            if (path.length > ExtensionPackager.MAX_PATH_LENGTH * 2) throw InvalidExtensionException("Path too long: $path")
-        }
-
-        fun read(path: String, input: InputStream): ByteArray {
-            val limit = ExtensionPackager.MAX_UNCOMPRESSED_BYTES - bytes
-            val data = input.readNBytes((limit + 1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
-            bytes += data.size
-            if (bytes > ExtensionPackager.MAX_UNCOMPRESSED_BYTES) {
-                throw InvalidExtensionException("Package too large uncompressed (> ${ExtensionPackager.MAX_UNCOMPRESSED_BYTES} bytes, at $path)")
-            }
-            return data
-        }
-    }
-}
-
-/** Splits a package zip into [ExtensionChunk]s of at most [ProtocolLimits.MAX_EXTENSION_CHUNK_BYTES]. */
-object ExtensionChunker {
-    fun split(id: String, zip: ByteArray, chunkSize: Int = ProtocolLimits.MAX_EXTENSION_CHUNK_BYTES): List<ExtensionChunk> {
-        require(zip.isNotEmpty()) { "Empty package" }
-        require(chunkSize in 1..ProtocolLimits.MAX_EXTENSION_CHUNK_BYTES) { "Invalid chunk size $chunkSize" }
-        val total = (zip.size + chunkSize - 1) / chunkSize
-        return List(total) { index ->
-            val from = index * chunkSize
-            ExtensionChunk(id, index, total, zip.copyOfRange(from, minOf(zip.size, from + chunkSize)))
-        }
-    }
 }

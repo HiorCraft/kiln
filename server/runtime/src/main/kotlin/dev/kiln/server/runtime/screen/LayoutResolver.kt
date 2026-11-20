@@ -5,9 +5,6 @@ import dev.kiln.server.api.screen.ScreenElement
 import dev.kiln.server.api.screen.TextElement
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
 
-/** Position of a child relative to its parent panel, after layout. */
-data class Position(val x: Int, val y: Int)
-
 /**
  * Resolves the layout of a panel into absolute (parent-relative) child positions. The wire protocol only knows
  * absolute [dev.kiln.protocol.Bounds], so `Column`/`Row` never reach the client.

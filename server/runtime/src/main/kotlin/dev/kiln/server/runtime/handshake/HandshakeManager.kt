@@ -2,7 +2,7 @@ package dev.kiln.server.runtime.handshake
 
 import com.destroystokyo.paper.event.player.PlayerConnectionCloseEvent
 import dev.kiln.protocol.CHANNEL
-import dev.kiln.protocol.ClientboundMessage
+import dev.kiln.protocol.message.ClientboundMessage
 import dev.kiln.protocol.codec.MessageCodec
 import dev.kiln.server.runtime.extension.ExtensionRegistry
 import io.papermc.paper.connection.PlayerConfigurationConnection

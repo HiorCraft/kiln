@@ -1,6 +1,5 @@
 package dev.kiln.server.runtime
 
-import dev.kiln.server.api.Kiln
 import org.bukkit.plugin.java.JavaPlugin
 
 /**
@@ -11,9 +10,8 @@ class KilnPlugin : JavaPlugin() {
     private var runtime: KilnRuntime? = null
 
     override fun onLoad() {
-        val other = server.servicesManager.getRegistration(Kiln::class.java)
-        if (other != null && other.plugin !== this) {
-            logger.warning("${other.plugin.name} already provides Kiln (embedded); this plugin stays off")
+        KilnRuntime.otherProvider(this)?.let { other ->
+            logger.warning("${other.name} already provides Kiln (embedded); this plugin stays off")
             return
         }
         runtime = KilnRuntime(this, logger)
@@ -21,7 +19,7 @@ class KilnPlugin : JavaPlugin() {
 
     override fun onEnable() {
         val runtime = runtime ?: return
-        val problems = RuntimeChecks.problems(BuildInfo.load(), server.minecraftVersion, KotlinVersion.CURRENT)
+        val problems = KilnRuntime.problems(this)
         if (problems.isNotEmpty()) {
             problems.forEach(logger::severe)
             server.pluginManager.disablePlugin(this)

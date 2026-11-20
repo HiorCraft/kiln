@@ -1,30 +1,11 @@
 package dev.kiln.server.runtime.furniture
 
-import java.util.UUID
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.round
 import kotlin.math.sin
-
-data class Vec(val x: Double, val y: Double, val z: Double) {
-    operator fun plus(o: Vec) = Vec(x + o.x, y + o.y, z + o.z)
-}
-
-/** Axis-aligned box in world coordinates. */
-data class Box(val minX: Double, val minY: Double, val minZ: Double, val maxX: Double, val maxY: Double, val maxZ: Double) {
-    /** Rounded to 1e-6 (comparisons in tests and logs). */
-    fun rounded(): Box {
-        fun r(v: Double) = round(v * 1e6) / 1e6
-        return Box(r(minX), r(minY), r(minZ), r(maxX), r(maxY), r(maxZ))
-    }
-}
-
-/**
- * One hit box of a furniture type: an `Interaction` entity, square base [width], [height], its feet at [offset]
- * from the furniture origin in the "facing south" frame (+z = front). [solid] boxes collide like boats.
- */
-data class Hitbox(val width: Double, val height: Double, val offset: Vec, val solid: Boolean)
 
 /** Pure placement maths of furniture. */
 object FurnitureGeometry {
@@ -60,10 +41,13 @@ object FurnitureGeometry {
     fun shouldStandUp(alive: Boolean, sameWorld: Boolean, distanceSquared: Double): Boolean =
         alive && sameWorld && distanceSquared <= 4.0
 
-    /** Indices of [seats] a rider sits on (rider seat positions within 0.05 blocks). */
+    /** Rider and seat positions this close (blocks, per axis) are the same seat. */
+    private const val SEAT_TOLERANCE = 0.05
+
+    /** Indices of [seats] a rider sits on (rider seat positions within [SEAT_TOLERANCE]). */
     fun occupiedSeats(seats: List<Vec>, riders: List<Vec>): Set<Int> =
         seats.indices.filter { i ->
-            riders.any { r -> kotlin.math.abs(r.x - seats[i].x) < 0.05 && kotlin.math.abs(r.y - seats[i].y) < 0.05 && kotlin.math.abs(r.z - seats[i].z) < 0.05 }
+            riders.any { r -> abs(r.x - seats[i].x) < SEAT_TOLERANCE && abs(r.y - seats[i].y) < SEAT_TOLERANCE && abs(r.z - seats[i].z) < SEAT_TOLERANCE }
         }.toSet()
 
     /** Index of the unoccupied seat (world positions [seats]) closest to [point], or `null` if all are taken. */
@@ -83,32 +67,5 @@ object FurnitureGeometry {
                         if (isSolidAt(x, y, z)) return true
         }
         return false
-    }
-}
-
-/** One placed furniture as stored in its chunk. */
-data class StoredFurniture(val type: String, val x: Double, val y: Double, val z: Double, val yaw: Float, val id: UUID)
-
-/** Line format of the chunk entry `kiln:furniture`: `type;x;y;z;yaw;uuid` per line. Invalid lines are skipped. */
-object FurnitureStore {
-    data class Decoded(val entries: List<StoredFurniture>, val invalid: Int)
-
-    fun encode(list: List<StoredFurniture>): String =
-        list.joinToString("\n") { "${it.type};${it.x};${it.y};${it.z};${it.yaw};${it.id}" }
-
-    fun decode(text: String): Decoded {
-        val result = ArrayList<StoredFurniture>()
-        var invalid = 0
-        for (line in text.lineSequence()) {
-            if (line.isBlank()) continue
-            val parts = line.split(';')
-            val entry = if (parts.size != 6 || ':' !in parts[0]) null else try {
-                StoredFurniture(parts[0], parts[1].toDouble(), parts[2].toDouble(), parts[3].toDouble(), parts[4].toFloat(), UUID.fromString(parts[5]))
-            } catch (e: IllegalArgumentException) {
-                null
-            }
-            if (entry == null) invalid++ else result += entry
-        }
-        return Decoded(result, invalid)
     }
 }

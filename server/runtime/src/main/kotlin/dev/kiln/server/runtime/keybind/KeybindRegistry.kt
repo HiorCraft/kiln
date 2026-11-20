@@ -4,34 +4,11 @@ import dev.kiln.server.api.keybind.KeyCode
 import dev.kiln.server.api.keybind.Keybind
 import dev.kiln.server.api.keybind.KeybindHandlers
 import dev.kiln.protocol.Ids
-import dev.kiln.protocol.KeybindDeclaration
+import dev.kiln.protocol.message.KeybindDeclaration
 import dev.kiln.protocol.ProtocolLimits
 import net.kyori.adventure.key.Key
 import org.bukkit.entity.Player
 import org.bukkit.plugin.Plugin
-
-/** A registered server keybind; its wire id is `key.asString()`. */
-class KeybindImpl(
-    private val registry: KeybindRegistry,
-    override val plugin: Plugin,
-    override val key: Key,
-    override val name: String,
-    override val category: String,
-    override val defaultKey: KeyCode,
-    val handlers: KeybindHandlers,
-) : Keybind {
-    val wireId: String = key.asString()
-
-    override fun isPressed(player: Player): Boolean = registry.pressedLookup(player, wireId)
-
-    override fun unregister() {
-        registry.remove(this)
-    }
-
-    fun declaration(): KeybindDeclaration = KeybindDeclaration(wireId, name, category, defaultKey.name)
-
-    override fun toString(): String = "Keybind($wireId)"
-}
 
 /**
  * All server keybinds, keyed by wire id. [onChanged] runs after every registration/removal so connected clients
@@ -56,8 +33,8 @@ class KeybindRegistry(
     fun register(plugin: Plugin, key: Key, name: String, defaultKey: KeyCode, category: String, handlers: KeybindHandlers): KeybindImpl {
         val wireId = key.asString()
         require(Ids.isValidKeybindId(wireId)) { "Invalid keybind key '$wireId' (allowed: [A-Za-z0-9_.:/-], 1..64 chars)" }
-        require(name.isNotEmpty() && name.length <= ProtocolLimits.MAX_KEYBIND_TEXT_LENGTH) { "Keybind name must be 1..256 chars" }
-        require(category.isNotEmpty() && category.length <= ProtocolLimits.MAX_KEYBIND_TEXT_LENGTH) { "Keybind category must be 1..256 chars" }
+        require(name.isNotEmpty() && name.length <= ProtocolLimits.MAX_KEYBIND_TEXT_LENGTH) { "Keybind name must be 1..${ProtocolLimits.MAX_KEYBIND_TEXT_LENGTH} chars" }
+        require(category.isNotEmpty() && category.length <= ProtocolLimits.MAX_KEYBIND_TEXT_LENGTH) { "Keybind category must be 1..${ProtocolLimits.MAX_KEYBIND_TEXT_LENGTH} chars" }
         require(defaultKey.name.isNotEmpty() && defaultKey.name.length <= ProtocolLimits.MAX_ID_LENGTH) { "Invalid default key '$defaultKey'" }
         val existing = keybinds[wireId]
         require(existing == null || existing.plugin == plugin) {
@@ -77,10 +54,8 @@ class KeybindRegistry(
         }
     }
 
-    /** Removes all keybinds of [plugin]; returns whether anything changed. */
-    fun removeAll(plugin: Plugin): Boolean {
-        val changed = keybinds.values.removeIf { it.plugin == plugin }
-        if (changed) onChanged()
-        return changed
+    /** Removes all keybinds of [plugin]. */
+    fun removeAll(plugin: Plugin) {
+        if (keybinds.values.removeIf { it.plugin == plugin }) onChanged()
     }
 }

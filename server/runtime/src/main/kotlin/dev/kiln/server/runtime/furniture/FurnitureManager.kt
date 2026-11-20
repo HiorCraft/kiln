@@ -1,13 +1,14 @@
 package dev.kiln.server.runtime.furniture
 
-import dev.kiln.protocol.EntityTraits
-import dev.kiln.protocol.EntityTraitsRemove
+import dev.kiln.protocol.message.ClientboundMessage
+import dev.kiln.protocol.message.EntityTraits
+import dev.kiln.protocol.message.EntityTraitsRemove
 import dev.kiln.server.api.furniture.Furniture
 import dev.kiln.server.api.furniture.FurnitureBuilder
+import dev.kiln.server.api.furniture.FurnitureHitbox
 import dev.kiln.server.api.furniture.FurnitureRegistry
 import dev.kiln.server.api.furniture.FurnitureType
 import dev.kiln.server.runtime.extension.ExtensionImpl
-import dev.kiln.server.runtime.item.ContentExtension
 import dev.kiln.server.runtime.item.CustomItemCatalog
 import io.papermc.paper.datacomponent.DataComponentTypes
 import io.papermc.paper.event.player.PlayerTrackEntityEvent
@@ -20,10 +21,13 @@ import org.bukkit.GameMode
 import org.bukkit.Location
 import org.bukkit.NamespacedKey
 import org.bukkit.World
+import org.bukkit.block.Block
 import org.bukkit.craftbukkit.CraftWorld
 import org.bukkit.entity.Entity
+import org.bukkit.entity.Item
 import org.bukkit.entity.ItemDisplay
 import org.bukkit.entity.Player
+import org.bukkit.event.Event
 import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
@@ -31,8 +35,8 @@ import org.bukkit.event.block.Action
 import org.bukkit.event.block.BlockPlaceEvent
 import org.bukkit.event.entity.CreatureSpawnEvent
 import org.bukkit.event.entity.EntityDismountEvent
-import org.bukkit.event.player.PlayerInteractEntityEvent
 import org.bukkit.event.player.PlayerInteractAtEntityEvent
+import org.bukkit.event.player.PlayerInteractEntityEvent
 import org.bukkit.event.player.PlayerInteractEvent
 import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.event.world.ChunkLoadEvent
@@ -42,10 +46,12 @@ import org.bukkit.inventory.ItemStack
 import org.bukkit.inventory.ItemType
 import org.bukkit.persistence.PersistentDataType
 import org.bukkit.plugin.Plugin
+import org.bukkit.util.BoundingBox
 import org.bukkit.util.Vector
 import java.util.UUID
 import java.util.logging.Level
 import java.util.logging.Logger
+import kotlin.math.floor
 
 /**
  * [FurnitureRegistry]: furniture is stored per chunk (`kiln:furniture`, [FurnitureStore]) and shown by
@@ -57,9 +63,9 @@ class FurnitureManager(
     private val logger: Logger,
     extensions: (String) -> ExtensionImpl?,
     /** Sends a Kiln message to a player with a session (entity traits). */
-    private val sendTraits: (Player, Any) -> Unit,
+    private val sendTraits: (Player, ClientboundMessage) -> Unit,
 ) : FurnitureRegistry, Listener {
-    private val types = CustomItemCatalog<FurnitureTypeImpl> { id -> extensions(id)?.let { ContentExtension(it.plugin.name, it.pkg.files.toSet()) } }
+    private val types = CustomItemCatalog<FurnitureTypeImpl> { id -> extensions(id)?.asContentExtension() }
     private val live = HashMap<UUID, LiveFurniture>()
     private val byEntity = HashMap<UUID, LiveFurniture>()
     private val seats = HashMap<UUID, LiveFurniture>()
@@ -132,8 +138,7 @@ class FurnitureManager(
     private fun spawnStored(chunk: Chunk, filter: (StoredFurniture) -> Boolean = { true }) {
         for (stored in readChunk(chunk)) {
             if (!filter(stored) || stored.id in live) continue
-            val key = Key.key(stored.type)
-            val type = types.get(key) ?: continue // plugin not (yet) there: stays stored
+            val type = types.get(Key.key(stored.type)) ?: continue // plugin not (yet) there: stays stored
             try {
                 spawn(chunk.world, type, stored)
             } catch (e: Exception) {
@@ -143,17 +148,11 @@ class FurnitureManager(
     }
 
     private fun spawn(world: World, type: FurnitureTypeImpl, stored: StoredFurniture): LiveFurniture {
-        val origin = Vec(stored.x, stored.y, stored.z)
-        val definition = type.definition
-        // item displays draw the item model turned by 180° around Y: + 180 keeps the model's north at the back
-        val display = world.spawn(Location(world, stored.x, stored.y + definition.modelHeight, stored.z, stored.yaw + 180f, 0f), ItemDisplay::class.java) {
-            it.isPersistent = false
-            it.setItemStack(ItemType.PAPER.createItemStack().apply { setData(DataComponentTypes.ITEM_MODEL, type.model) })
-        }
+        val display = spawnModel(world, type, stored)
         val level = (world as CraftWorld).handle
         lateinit var furniture: LiveFurniture
-        val parts = definition.hitboxes.map { box ->
-            val feet = FurnitureGeometry.position(origin, stored.yaw, Hitbox(box.width, box.height, Vec(box.offset.x, box.offset.y, box.offset.z), box.solid))
+        val parts = type.definition.hitboxes.map { box ->
+            val feet = FurnitureGeometry.position(stored.origin, stored.yaw, box.toGeometry())
             val entity = KilnInteraction(level, box.solid) { player -> onAttacked(furniture, player) }
             entity.setPos(feet.x, feet.y, feet.z)
             entity.setWidth(box.width.toFloat())
@@ -164,16 +163,44 @@ class FurnitureManager(
         furniture = LiveFurniture(this, type, stored, display, parts.map { it.bukkitEntity }, parts.filter { it.solid }.map { it.id }.toSet())
         // registered before the parts enter the world: adding an entity starts tracking (PlayerTrackEntityEvent)
         // right away, and the solid trait must be known by then
-        live[stored.id] = furniture
-        byChunk.getOrPut(chunkKey(stored, world)) { HashSet() } += furniture
-        byEntity[display.uniqueId] = furniture
-        for (part in furniture.parts) byEntity[part.uniqueId] = furniture
+        track(furniture)
         for (part in parts) level.addFreshEntity(part, CreatureSpawnEvent.SpawnReason.CUSTOM)
         return furniture
     }
 
+    private fun spawnModel(world: World, type: FurnitureTypeImpl, stored: StoredFurniture): ItemDisplay {
+        // item displays draw the item model turned by 180° around Y: + 180 keeps the model's north at the back
+        val at = Location(world, stored.x, stored.y + type.definition.modelHeight, stored.z, stored.yaw + 180f, 0f)
+        return world.spawn(at, ItemDisplay::class.java) {
+            it.isPersistent = false
+            it.setItemStack(ItemType.PAPER.createItemStack().apply { setData(DataComponentTypes.ITEM_MODEL, type.model) })
+        }
+    }
+
+    private fun track(furniture: LiveFurniture) {
+        live[furniture.id] = furniture
+        byChunk.getOrPut(chunkKey(furniture)) { HashSet() } += furniture
+        byEntity[furniture.display.uniqueId] = furniture
+        for (part in furniture.parts) byEntity[part.uniqueId] = furniture
+    }
+
     private fun despawn(furniture: LiveFurniture) {
-        // riders sit on separate seat entities: eject them and remove their seats
+        removeSeats(furniture)
+        // players still tracking a solid box must drop its trait (a later entity may reuse the id)
+        if (furniture.solidIds.isNotEmpty()) {
+            val trackers = furniture.parts.flatMap { it.trackedBy }.toSet()
+            for (player in trackers) sendTraits(player, EntityTraitsRemove(furniture.solidIds.toList()))
+        }
+        untrack(furniture)
+        furniture.display.remove()
+        for (part in furniture.parts) {
+            part.passengers.forEach { it.leaveVehicle() }
+            part.remove()
+        }
+    }
+
+    /** Riders sit on separate seat entities: ejects them and removes their seats. */
+    private fun removeSeats(furniture: LiveFurniture) {
         for ((seatId, owner) in seats.entries.toList()) {
             if (owner !== furniture) continue
             seats -= seatId
@@ -182,23 +209,22 @@ class FurnitureManager(
                 seat.remove()
             }
         }
-        // players still tracking a solid box must drop its trait (a later entity may reuse the id)
-        if (furniture.solidIds.isNotEmpty()) {
-            val trackers = furniture.parts.flatMap { it.trackedBy }.toSet()
-            for (player in trackers) sendTraits(player, EntityTraitsRemove(furniture.solidIds.toList()))
-        }
+    }
+
+    private fun untrack(furniture: LiveFurniture) {
         live.remove(furniture.id)
-        byChunk[chunkKey(furniture.stored, furniture.display.world)]?.let { set ->
+        val chunkKey = chunkKey(furniture)
+        byChunk[chunkKey]?.let { set ->
             set.remove(furniture)
-            if (set.isEmpty()) byChunk.remove(chunkKey(furniture.stored, furniture.display.world))
+            if (set.isEmpty()) byChunk.remove(chunkKey)
         }
         byEntity.remove(furniture.display.uniqueId)
-        furniture.display.remove()
-        for (part in furniture.parts) {
-            byEntity.remove(part.uniqueId)
-            part.passengers.forEach { it.leaveVehicle() }
-            part.remove()
-        }
+        for (part in furniture.parts) byEntity.remove(part.uniqueId)
+    }
+
+    private fun chunkKey(furniture: LiveFurniture): Pair<UUID, Long> {
+        val stored = furniture.stored
+        return furniture.display.world.uid to Chunk.getChunkKey(floor(stored.x).toInt() shr 4, floor(stored.z).toInt() shr 4)
     }
 
     private fun readChunk(chunk: Chunk): List<StoredFurniture> {
@@ -213,6 +239,8 @@ class FurnitureManager(
         else chunk.persistentDataContainer.set(CHUNK_KEY, PersistentDataType.STRING, FurnitureStore.encode(list))
     }
 
+    // ---- seats --------------------------------------------------------------------------------------------
+
     /** [offset].y is the height of the sitting surface above the origin; the rider's hips end up there. */
     internal fun seat(furniture: LiveFurniture, player: Player, offset: Vector): Boolean {
         // already on one of our seats: switch (the old seat goes without standing up); other vehicles stay
@@ -223,7 +251,7 @@ class FurnitureManager(
             player.leaveVehicle()
             current.remove()
         }
-        val pos = FurnitureGeometry.rotate(Vec(offset.x, offset.y, offset.z), furniture.stored.yaw)
+        val pos = FurnitureGeometry.rotate(offset.toVec(), furniture.stored.yaw)
         val at = furniture.location.clone().add(pos.x, pos.y, pos.z)
         val seat = at.world.spawn(at, ItemDisplay::class.java) { it.isPersistent = false }
         seats[seat.uniqueId] = furniture
@@ -238,19 +266,20 @@ class FurnitureManager(
     internal fun sit(furniture: LiveFurniture, player: Player, near: Location?): Boolean {
         val offsets = furniture.type.definition.seats
         if (offsets.isEmpty()) return false
-        val origin = Vec(furniture.stored.x, furniture.stored.y, furniture.stored.z)
-        val positions = offsets.map { origin + FurnitureGeometry.rotate(Vec(it.x, it.y, it.z), furniture.stored.yaw) }
+        val positions = offsets.map { furniture.stored.origin + FurnitureGeometry.rotate(it.toVec(), furniture.stored.yaw) }
         // taken = a seat entity of this furniture stands there (also seats placed through Furniture.seat); the
         // clicking player's own seat does not count, so a click elsewhere moves them
         val riders = seats.filter { it.value === furniture && it.key != player.vehicle?.uniqueId }.keys
-            .mapNotNull(Bukkit::getEntity).map { Vec(it.location.x, it.location.y, it.location.z) }
+            .mapNotNull(Bukkit::getEntity).map { it.location.toVec() }
         val occupied = FurnitureGeometry.occupiedSeats(positions, riders)
-        val point = (near ?: player.location).let { Vec(it.x, it.y, it.z) }
-        val index = FurnitureGeometry.nearestFreeSeat(positions, occupied, point) ?: return false
-        // clicking the seat you sit on changes nothing
-        val own = player.vehicle?.takeIf { seats[it.uniqueId] === furniture }?.location
-        if (own != null && FurnitureGeometry.occupiedSeats(listOf(positions[index]), listOf(Vec(own.x, own.y, own.z))).isNotEmpty()) return true
+        val index = FurnitureGeometry.nearestFreeSeat(positions, occupied, (near ?: player.location).toVec()) ?: return false
+        if (sitsAt(player, furniture, positions[index])) return true // clicking the seat you sit on changes nothing
         return seat(furniture, player, offsets[index])
+    }
+
+    private fun sitsAt(player: Player, furniture: LiveFurniture, position: Vec): Boolean {
+        val own = player.vehicle?.takeIf { seats[it.uniqueId] === furniture }?.location ?: return false
+        return FurnitureGeometry.occupiedSeats(listOf(position), listOf(own.toVec())).isNotEmpty()
     }
 
     /**
@@ -258,10 +287,9 @@ class FurnitureManager(
      * seat's height, inside a solid box, from where they fall into the floor).
      */
     private fun standUpLocation(furniture: LiveFurniture, seat: Location, player: Player): Location {
-        val boxes = FurnitureGeometry.boxes(
-            Vec(furniture.stored.x, furniture.stored.y, furniture.stored.z), furniture.stored.yaw,
-            furniture.type.definition.hitboxes.map { Hitbox(it.width, it.height, Vec(it.offset.x, it.offset.y, it.offset.z), it.solid) },
-        ).filterIndexed { i, _ -> furniture.type.definition.hitboxes[i].solid }
+        val hitboxes = furniture.type.definition.hitboxes
+        val boxes = FurnitureGeometry.boxes(furniture.stored.origin, furniture.stored.yaw, hitboxes.map { it.toGeometry() })
+            .filterIndexed { i, _ -> hitboxes[i].solid }
         val top = boxes.filter { seat.x in it.minX..it.maxX && seat.z in it.minZ..it.maxZ }.maxOfOrNull { it.maxY }
         return Location(seat.world, seat.x, maxOf(top ?: seat.y, furniture.stored.y), seat.z, player.location.yaw, player.location.pitch)
     }
@@ -290,13 +318,10 @@ class FurnitureManager(
         lastInteract -= event.player.uniqueId
     }
 
-    private fun chunkKey(stored: StoredFurniture, world: World): Pair<UUID, Long> =
-        world.uid to Chunk.getChunkKey(kotlin.math.floor(stored.x).toInt() shr 4, kotlin.math.floor(stored.z).toInt() shr 4)
-
     /** Right click on a block with a furniture item places it on that face. */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = false)
     fun onPlace(event: PlayerInteractEvent) {
-        if (event.action != Action.RIGHT_CLICK_BLOCK || event.useItemInHand() == org.bukkit.event.Event.Result.DENY) return
+        if (event.action != Action.RIGHT_CLICK_BLOCK || event.useItemInHand() == Event.Result.DENY) return
         val stack = event.item ?: return
         val type = types.all().firstOrNull { it.definition.item?.matches(stack) == true } ?: return
         val clicked = event.clickedBlock ?: return
@@ -307,18 +332,25 @@ class FurnitureManager(
         if (!target.isReplaceable) return
         val player = event.player
         if (player.gameMode == GameMode.ADVENTURE || player.gameMode == GameMode.SPECTATOR) return
-        // protection plugins (regions, spawn protection) decide through the usual block place event
-        val placeCheck = BlockPlaceEvent(target, target.state, clicked, stack, player, true, event.hand ?: EquipmentSlot.HAND)
-        if (!placeCheck.callEvent() || !placeCheck.canBuild()) return
+        if (!mayBuild(event, player, target, clicked, stack)) return
         val origin = Vec(target.x + 0.5, target.y.toDouble(), target.z + 0.5)
         val yaw = FurnitureGeometry.snapYaw(player.location.yaw + 180f, type.definition.hitboxes.isNotEmpty())
-        val boxes = FurnitureGeometry.boxes(origin, yaw, type.definition.hitboxes.map { Hitbox(it.width, it.height, Vec(it.offset.x, it.offset.y, it.offset.z), it.solid) })
-        // any block that is not replaceable (also flowers, torches) and any entity (other furniture, players) is in the way
-        if (FurnitureGeometry.blocked(boxes) { x, y, z -> target.world.getBlockAt(x, y, z).let { !it.isReplaceable } }) return
-        if (boxes.any { b -> target.world.getNearbyEntities(org.bukkit.util.BoundingBox(b.minX, b.minY, b.minZ, b.maxX, b.maxY, b.maxZ)) { it !is org.bukkit.entity.Item }.isNotEmpty() }) return
+        val boxes = FurnitureGeometry.boxes(origin, yaw, type.definition.hitboxes.map { it.toGeometry() })
+        if (isObstructed(target.world, boxes)) return
         place(type, Location(target.world, origin.x, origin.y, origin.z), yaw)
         if (player.gameMode != GameMode.CREATIVE) stack.amount -= 1
     }
+
+    /** Protection plugins (regions, spawn protection) decide through the usual block place event. */
+    private fun mayBuild(event: PlayerInteractEvent, player: Player, target: Block, clicked: Block, stack: ItemStack): Boolean {
+        val placeCheck = BlockPlaceEvent(target, target.state, clicked, stack, player, true, event.hand ?: EquipmentSlot.HAND)
+        return placeCheck.callEvent() && placeCheck.canBuild()
+    }
+
+    /** Any block that is not replaceable (also flowers, torches) and any entity (other furniture, players) is in the way. */
+    private fun isObstructed(world: World, boxes: List<Box>): Boolean =
+        FurnitureGeometry.blocked(boxes) { x, y, z -> !world.getBlockAt(x, y, z).isReplaceable } ||
+            boxes.any { b -> world.getNearbyEntities(BoundingBox(b.minX, b.minY, b.minZ, b.maxX, b.maxY, b.maxZ)) { it !is Item }.isNotEmpty() }
 
     /** Left click on a hit box (reported by [KilnInteraction]): `onBreak`, by default remove (+ drop in survival). */
     private fun onAttacked(furniture: LiveFurniture, player: Player) {
@@ -347,14 +379,17 @@ class FurnitureManager(
         val furniture = byEntity[event.rightClicked.uniqueId] ?: return
         event.isCancelled = true
         val player = event.player
-        val tick = player.world.gameTime
-        if (lastInteract[player.uniqueId] == tick) return
-        lastInteract[player.uniqueId] = tick
+        if (!isFirstInteractThisTick(player)) return
         val click = (event as? PlayerInteractAtEntityEvent)?.let { event.rightClicked.location.clone().add(it.clickedPosition) }
         val handler = furniture.type.definition.onInteract
         hook(furniture, "onInteract") {
             if (handler != null) handler(player, furniture) else furniture.sit(player, click ?: event.rightClicked.location)
         }
+    }
+
+    private fun isFirstInteractThisTick(player: Player): Boolean {
+        val tick = player.world.gameTime
+        return lastInteract.put(player.uniqueId, tick) != tick
     }
 
     @EventHandler
@@ -402,39 +437,10 @@ class FurnitureManager(
     }
 }
 
-class FurnitureTypeImpl(
-    private val manager: FurnitureManager,
-    override val plugin: Plugin,
-    override val key: Key,
-    val definition: FurnitureBuilder,
-) : FurnitureType {
-    val model: Key = CustomItemCatalog.modelOf(key, definition.model)
+private val StoredFurniture.origin: Vec get() = Vec(x, y, z)
 
-    override fun place(location: Location, yaw: Float): Furniture = manager.place(this, location, yaw)
+private fun Vector.toVec(): Vec = Vec(x, y, z)
 
-    override fun unregister() = manager.unregister(this)
+private fun Location.toVec(): Vec = Vec(x, y, z)
 
-    override fun toString(): String = "FurnitureType(${key.asString()})"
-}
-
-class LiveFurniture(
-    private val manager: FurnitureManager,
-    override val type: FurnitureTypeImpl,
-    val stored: StoredFurniture,
-    val display: ItemDisplay,
-    val parts: List<Entity>,
-    /** Network ids of the solid hit boxes. */
-    val solidIds: Set<Int>,
-) : Furniture {
-    override val id: UUID get() = stored.id
-
-    override val location: Location get() = Location(display.world, stored.x, stored.y, stored.z, stored.yaw, 0f)
-
-    override fun remove(dropItem: Boolean) = manager.remove(this, dropItem)
-
-    override fun seat(player: Player, offset: Vector) {
-        manager.seat(this, player, offset)
-    }
-
-    override fun sit(player: Player, near: Location?): Boolean = manager.sit(this, player, near)
-}
+private fun FurnitureHitbox.toGeometry(): Hitbox = Hitbox(width, height, offset.toVec(), solid)

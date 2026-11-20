@@ -1,19 +1,7 @@
 package dev.kiln.gradle
 
-import org.gradle.api.DefaultTask
 import org.gradle.api.Project
-import org.gradle.api.file.ConfigurableFileCollection
-import org.gradle.api.file.DirectoryProperty
-import org.gradle.api.provider.Property
 import org.gradle.api.tasks.GradleBuild
-import org.gradle.api.tasks.Input
-import org.gradle.api.tasks.InputFiles
-import org.gradle.api.tasks.Internal
-import org.gradle.api.tasks.OutputDirectory
-import org.gradle.api.tasks.PathSensitive
-import org.gradle.api.tasks.PathSensitivity
-import org.gradle.api.tasks.TaskAction
-import org.gradle.work.DisableCachingByDefault
 
 /**
  * `prepareKilnClient` writes [ClientRunProject] to `build/kiln/client`; `runClient` runs that project's `runClient`
@@ -22,13 +10,12 @@ import org.gradle.work.DisableCachingByDefault
  */
 internal object ClientRun {
     fun register(project: Project, kiln: KilnExtension, versions: KilnVersions) {
-        val kilnClient = KilnGradlePlugin.artifactConfiguration(project, "kilnClient", { kiln.clientJar.isPresent }) {
+        val kilnClient = KilnGradlePlugin.localJarOrArtifact(project, "kilnClient", kiln.clientJar) {
             "dev.kiln:kiln-client:${kiln.version.get()}"
         }
         val prepare = project.tasks.register("prepareKilnClient", PrepareKilnClient::class.java) {
             group = "kiln"
             description = "Writes the Gradle project that runs the Minecraft client with the Kiln runtime."
-            clientJars.from(kiln.clientJar.map { listOf(it) }.orElse(emptyList()))
             clientJars.from(kilnClient)
             username.set(kiln.clientUsername)
             quickPlay.set(kiln.quickPlay)
@@ -45,51 +32,5 @@ internal object ClientRun {
             dir = prepare.get().outputDirectory.get().asFile
             tasks = listOf("runClient")
         }
-    }
-}
-
-@DisableCachingByDefault(because = "writes two small build scripts")
-abstract class PrepareKilnClient : DefaultTask() {
-    /** The Kiln client runtime jar (exactly one file). */
-    // the generated script refers to the jar by absolute path
-    @get:InputFiles
-    @get:PathSensitive(PathSensitivity.ABSOLUTE)
-    abstract val clientJars: ConfigurableFileCollection
-
-    @get:Input
-    abstract val username: Property<String>
-
-    @get:Input
-    @get:org.gradle.api.tasks.Optional
-    abstract val quickPlay: Property<String>
-
-    @get:Internal
-    abstract val gameDirectory: DirectoryProperty
-
-    @get:OutputDirectory
-    abstract val outputDirectory: DirectoryProperty
-
-    /** Loader/API versions this plugin was built with (constant). */
-    @get:Internal
-    internal lateinit var baseVersions: KilnVersions
-
-    @get:Input
-    abstract val kilnVersion: Property<String>
-
-    @get:Input
-    abstract val minecraftVersion: Property<String>
-
-    @get:Input
-    val inputText: String get() = baseVersions.toString() + gameDirectory.get().asFile.absolutePath
-
-    @TaskAction
-    fun write() {
-        val jar = clientJars.files.singleOrNull()
-            ?: error("Expected exactly one Kiln client jar, got ${clientJars.files} (set kiln.clientJar or kiln.version)")
-        val out = outputDirectory.get().asFile
-        out.mkdirs()
-        out.resolve("settings.gradle.kts").writeText(ClientRunProject.settings())
-        val versions = baseVersions.copy(kiln = kilnVersion.get(), minecraft = minecraftVersion.get())
-        out.resolve("build.gradle.kts").writeText(ClientRunProject.build(versions, jar, username.get(), gameDirectory.get().asFile, quickPlay.orNull))
     }
 }

@@ -4,9 +4,12 @@ import dev.kiln.protocol.CHANNEL
 import dev.kiln.protocol.PROTOCOL_VERSION
 import dev.kiln.server.api.Kiln
 import dev.kiln.server.api.enchantment.KilnBootstrap
+import dev.kiln.server.runtime.enchantment.EnchantmentHookRegistry
 import dev.kiln.server.runtime.enchantment.EnchantmentHooks
+import dev.kiln.server.runtime.entity.CustomEntityManager
 import dev.kiln.server.runtime.handshake.HandshakeManager
 import dev.kiln.server.runtime.handshake.KickMessages
+import dev.kiln.server.runtime.handshake.SendThrottle
 import dev.kiln.server.runtime.item.CustomItemListener
 import io.papermc.paper.connection.PlayerConfigurationConnection
 import io.papermc.paper.connection.PlayerConnection
@@ -84,34 +87,42 @@ class KilnRuntime(val host: Plugin, val logger: Logger) : Listener {
                 if (connection is PlayerConfigurationConnection) handshakes.receive(connection, message)
             }
         })
-        val pm = server.pluginManager
-        pm.registerEvents(this, host)
-        pm.registerEvents(handshakes, host)
-        pm.registerEvents(itemListener, host)
-        pm.registerEvents(bridge.enchantments, host)
-        pm.registerEvents(bridge.furniture, host)
-        pm.registerEvents(bridge.entities, host)
-        val scheduler = server.scheduler
-        // fallback for clients whose channel registration did not produce a PlayerRegisterChannelEvent
-        tasks += scheduler.runTaskTimer(host, Runnable { bridge.flushAll() }, 20L, 20L)
-        tasks += scheduler.runTaskTimer(host, Runnable { handshakes.sweep() }, 20L * 60, 20L * 60)
-        tasks += scheduler.runTaskTimer(host, Runnable { bridge.enchantments.tick() }, 20L, 20L)
-        tasks += scheduler.runTaskTimer(host, Runnable { bridge.entities.tick() }, 10L, 10L)
-        // dependencies can only be checked once every plugin had the chance to register its extensions
-        scheduler.runTask(host, Runnable { bridge.extensionRegistry.logProblems() })
+        listeners().forEach { server.pluginManager.registerEvents(it, host) }
+        startTasks(handshakes)
 
         // players that are online without a handshake (enabled at runtime) cannot be served
-        server.onlinePlayers.forEach { it.kick(Component.text(KickMessages.NOT_HANDSHAKEN, NamedTextColor.RED)) }
+        server.onlinePlayers.forEach(::kickNotHandshaken)
         logger.info("Kiln enabled (protocol $PROTOCOL_VERSION, channel $CHANNEL, ${bridge.extensions().size} extension(s))")
-        val throttle = settings.sendThrottle
-        if (!throttle.unlimited) {
-            val total = bridge.extensionRegistry.packages.sumOf { it.zip.size.toLong() }
-            logger.info(
-                "Extension download limited to $throttle per player: a full download of ${total / 1024} KiB takes " +
-                    "~${(throttle.transferMillis(total) + 999) / 1000} s (download timeout extended accordingly)",
-            )
-        }
+        logThrottle(settings.sendThrottle)
     }
+
+    private fun listeners(): List<Listener> =
+        listOfNotNull(this, handshakes, itemListener, bridge.enchantments, bridge.furniture, bridge.entities)
+
+    private fun startTasks(handshakes: HandshakeManager) {
+        val scheduler = server.scheduler
+        fun every(ticks: Long, task: () -> Unit) {
+            tasks += scheduler.runTaskTimer(host, Runnable(task), ticks, ticks)
+        }
+        // fallback for clients whose channel registration did not produce a PlayerRegisterChannelEvent
+        every(TICKS_PER_SECOND) { bridge.flushAll() }
+        every(TICKS_PER_MINUTE) { handshakes.sweep() }
+        every(EnchantmentHookRegistry.TICK_INTERVAL.toLong()) { bridge.enchantments.tick() }
+        every(CustomEntityManager.TICK_INTERVAL.toLong()) { bridge.entities.tick() }
+        // dependencies can only be checked once every plugin had the chance to register its extensions
+        scheduler.runTask(host, Runnable { bridge.extensionRegistry.logProblems() })
+    }
+
+    private fun logThrottle(throttle: SendThrottle) {
+        if (throttle.unlimited) return
+        val total = bridge.extensionRegistry.packages.sumOf { it.zip.size.toLong() }
+        logger.info(
+            "Extension download limited to $throttle per player: a full download of ${total / 1024} KiB takes " +
+                "~${(throttle.transferMillis(total) + 999) / 1000} s (download timeout extended accordingly)",
+        )
+    }
+
+    private fun kickNotHandshaken(player: Player) = player.kick(Component.text(KickMessages.NOT_HANDSHAKEN, NamedTextColor.RED))
 
     /** Stops Kiln and removes only what it registered under [host]. */
     fun disable() {
@@ -121,12 +132,7 @@ class KilnRuntime(val host: Plugin, val logger: Logger) : Listener {
         bridge.shutdown()
         tasks.forEach { it.cancel() }
         tasks.clear()
-        HandlerList.unregisterAll(this)
-        handshakes?.let(HandlerList::unregisterAll)
-        HandlerList.unregisterAll(itemListener)
-        HandlerList.unregisterAll(bridge.enchantments)
-        HandlerList.unregisterAll(bridge.furniture)
-        HandlerList.unregisterAll(bridge.entities)
+        listeners().forEach(HandlerList::unregisterAll)
         server.messenger.unregisterIncomingPluginChannel(host, CHANNEL)
         server.messenger.unregisterOutgoingPluginChannel(host, CHANNEL)
         server.servicesManager.unregister(Kiln::class.java, bridge)
@@ -137,7 +143,7 @@ class KilnRuntime(val host: Plugin, val logger: Logger) : Listener {
         val player = event.player
         if (handshakes?.consumeReady(player.uniqueId) != true) {
             logger.info("Disconnecting ${player.name}: joined without kiln handshake")
-            player.kick(Component.text(KickMessages.NOT_HANDSHAKEN, NamedTextColor.RED))
+            kickNotHandshaken(player)
             return
         }
         bridge.onJoin(player)
@@ -164,5 +170,18 @@ class KilnRuntime(val host: Plugin, val logger: Logger) : Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     fun onPluginDisable(event: PluginDisableEvent) {
         if (event.plugin !== host) bridge.onPluginDisable(event.plugin)
+    }
+
+    companion object {
+        private const val TICKS_PER_SECOND = 20L
+        private const val TICKS_PER_MINUTE = TICKS_PER_SECOND * 60
+
+        /** The plugin other than [host] that already provides the Kiln service, or `null`. */
+        fun otherProvider(host: Plugin): Plugin? =
+            host.server.servicesManager.getRegistration(Kiln::class.java)?.plugin?.takeIf { it !== host }
+
+        /** Why Kiln cannot run on this server (Minecraft version, Kotlin runtime); empty if it can. */
+        fun problems(host: Plugin): List<String> =
+            RuntimeChecks.problems(BuildInfo.load(), host.server.minecraftVersion, KotlinVersion.CURRENT)
     }
 }

@@ -1,7 +1,6 @@
 package dev.kiln.server.runtime
 
 import dev.kiln.server.api.Kiln
-import org.bukkit.Bukkit
 import org.bukkit.plugin.Plugin
 import java.nio.file.Path
 
@@ -25,9 +24,8 @@ object KilnEmbedded {
     @JvmStatic
     fun load(host: Plugin): Boolean {
         runtime?.let { return it.host === host }
-        val other = Bukkit.getServicesManager().getRegistration(Kiln::class.java)
-        if (other != null && other.plugin !== host) {
-            host.logger.warning("[Kiln] ${other.plugin.name} already provides Kiln; the embedded copy stays off")
+        KilnRuntime.otherProvider(host)?.let { other ->
+            host.logger.warning("[Kiln] ${other.name} already provides Kiln; the embedded copy stays off")
             return false
         }
         runtime = KilnRuntime(host, PrefixedLogger(host.logger))
@@ -48,7 +46,7 @@ object KilnEmbedded {
     ): Boolean {
         if (!load(host)) return false
         val runtime = runtime!!
-        val problems = RuntimeChecks.problems(BuildInfo.load(), Bukkit.getMinecraftVersion(), KotlinVersion.CURRENT)
+        val problems = KilnRuntime.problems(host)
         if (problems.isNotEmpty()) {
             problems.forEach(runtime.logger::severe)
             disable()

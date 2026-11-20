@@ -1,5 +1,30 @@
 package dev.kiln.server.runtime
 
+import com.google.gson.JsonParseException
+import dev.kiln.protocol.CHANNEL
+import dev.kiln.protocol.message.ClickModifiers
+import dev.kiln.protocol.message.ClientboundMessage
+import dev.kiln.protocol.message.CloseScreen
+import dev.kiln.protocol.message.CreativeTabs as CreativeTabsMessage
+import dev.kiln.protocol.message.DeclareKeybinds
+import dev.kiln.protocol.message.ExtensionMessage
+import dev.kiln.protocol.message.ExtensionRequest
+import dev.kiln.protocol.message.ExtensionsReady
+import dev.kiln.protocol.message.Hello
+import dev.kiln.protocol.message.KeyPressed
+import dev.kiln.protocol.message.KeyReleased
+import dev.kiln.protocol.message.ModalDismiss
+import dev.kiln.protocol.message.OpenScreen
+import dev.kiln.protocol.ProtocolException
+import dev.kiln.protocol.ResourceId
+import dev.kiln.protocol.message.ScreenClick
+import dev.kiln.protocol.message.ScreenClosed
+import dev.kiln.protocol.message.ScreenInput
+import dev.kiln.protocol.message.ServerboundMessage
+import dev.kiln.protocol.message.SetPostEffect
+import dev.kiln.protocol.message.ShowToast
+import dev.kiln.protocol.message.Viewport as ViewportMessage
+import dev.kiln.protocol.codec.MessageCodec
 import dev.kiln.server.api.Kiln
 import dev.kiln.server.api.extension.Extension
 import dev.kiln.server.api.extension.ExtensionSource
@@ -15,42 +40,18 @@ import dev.kiln.server.api.screen.MouseButton
 import dev.kiln.server.api.screen.ScreenDefinition
 import dev.kiln.server.api.screen.ScreenHandle
 import dev.kiln.server.api.screen.Viewport
-import dev.kiln.protocol.ClickModifiers
-import dev.kiln.protocol.CHANNEL
-import dev.kiln.protocol.ClientboundMessage
-import dev.kiln.protocol.CloseScreen
-import dev.kiln.protocol.DeclareKeybinds
-import dev.kiln.protocol.ExtensionMessage
-import dev.kiln.protocol.ExtensionRequest
-import dev.kiln.protocol.ExtensionsReady
-import dev.kiln.protocol.Hello
-import dev.kiln.protocol.KeyPressed
-import dev.kiln.protocol.KeyReleased
-import dev.kiln.protocol.ModalDismiss
-import dev.kiln.protocol.OpenScreen
-import dev.kiln.protocol.ProtocolException
-import dev.kiln.protocol.ResourceId
-import dev.kiln.protocol.ScreenClick
-import dev.kiln.protocol.ScreenClosed
-import dev.kiln.protocol.ScreenInput
-import dev.kiln.protocol.ServerboundMessage
-import dev.kiln.protocol.ShowToast
-import dev.kiln.protocol.codec.MessageCodec
+import dev.kiln.server.runtime.content.PostEffects
+import dev.kiln.server.runtime.creative.CreativeTabRegistry
+import dev.kiln.server.runtime.enchantment.EnchantmentHookRegistry
+import dev.kiln.server.runtime.entity.CustomEntityManager
 import dev.kiln.server.runtime.extension.ExtensionMessenger
 import dev.kiln.server.runtime.extension.ExtensionRegistry
-import dev.kiln.server.runtime.item.CustomItemRegistry
-import dev.kiln.server.runtime.content.PostEffects
-import dev.kiln.protocol.SetPostEffect
-import dev.kiln.server.runtime.enchantment.EnchantmentHookRegistry
-import dev.kiln.server.runtime.creative.CreativeTabRegistry
 import dev.kiln.server.runtime.furniture.FurnitureManager
-import dev.kiln.server.runtime.entity.CustomEntityManager
-import dev.kiln.server.runtime.keybind.KeybindImpl
+import dev.kiln.server.runtime.item.CustomItemRegistry
 import dev.kiln.server.runtime.keybind.KeybindRegistry
 import dev.kiln.server.runtime.screen.EventValidator
 import dev.kiln.server.runtime.screen.ScreenConverter
 import dev.kiln.server.runtime.screen.Validation
-import com.google.gson.JsonParseException
 import net.kyori.adventure.key.Key
 import net.kyori.adventure.text.Component
 import org.bukkit.Bukkit
@@ -60,6 +61,7 @@ import org.bukkit.plugin.Plugin
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.logging.Level
+import java.util.logging.Logger
 
 /**
  * Implementation of [Kiln]. All state is mutated on the main thread (Paper delivers plugin messages there;
@@ -68,22 +70,43 @@ import java.util.logging.Level
 class KilnImpl(
     /** The plugin Kiln runs in (standalone [KilnPlugin] or a host that embeds it): owner of tasks and messages. */
     private val plugin: Plugin,
-    private val log: java.util.logging.Logger,
+    private val logger: Logger,
     private val settings: () -> KilnSettings,
 ) : Kiln, ExtensionMessenger {
     private val sessions = HashMap<UUID, PlayerSession>()
     private val rateLimiters = ConcurrentHashMap<UUID, RateLimiter>()
     private val extensionRateLimiters = HashMap<UUID, RateLimiter>()
-    private var keybindsDirty = false
 
-    val extensionRegistry = ExtensionRegistry(log, this)
+    // coalesce several changes in the same tick into one broadcast
+    private val keybindBroadcast: TickCoalescer = TickCoalescer(plugin, { sessions.isNotEmpty() }) {
+        val message = DeclareKeybinds(keybindRegistry.declarations())
+        sessions.values.forEach { send(it, message) }
+    }
+    private val creativeBroadcast: TickCoalescer = TickCoalescer(plugin, { sessions.isNotEmpty() }) {
+        val messages = creativeTabs.messages()
+        sessions.values.forEach { sendCreativeTabs(it, messages) }
+    }
 
-    override val items: CustomItemRegistry = CustomItemRegistry(log, extensionRegistry::impl)
+    val extensionRegistry = ExtensionRegistry(logger, this)
 
-    override val enchantments: EnchantmentHookRegistry = EnchantmentHookRegistry(log)
+    override val items: CustomItemRegistry = CustomItemRegistry(logger, extensionRegistry::impl)
 
-    override val creativeTabs: CreativeTabRegistry = CreativeTabRegistry(log, extensionRegistry::impl, ::scheduleCreativeBroadcast)
-    private var creativeDirty = false
+    override val enchantments: EnchantmentHookRegistry = EnchantmentHookRegistry(logger)
+
+    override val creativeTabs: CreativeTabRegistry = CreativeTabRegistry(logger, extensionRegistry::impl, creativeBroadcast::request)
+
+    override val entities: CustomEntityManager = CustomEntityManager(logger, extensionRegistry::impl) { player, message ->
+        session(player)?.let { send(it, message) }
+    }
+
+    override val furniture: FurnitureManager = FurnitureManager(plugin, logger, extensionRegistry::impl) { player, message ->
+        session(player)?.let { send(it, message) }
+    }
+
+    val keybindRegistry = KeybindRegistry(
+        pressedLookup = { player, id -> sessions[player.uniqueId]?.pressedKeys?.contains(id) == true },
+        onChanged = keybindBroadcast::request,
+    )
 
     init {
         extensionRegistry.onUnregistered = { id ->
@@ -93,21 +116,6 @@ class KilnImpl(
             creativeTabs.removeNamespace(id)
         }
     }
-
-    override val entities: CustomEntityManager = CustomEntityManager(log, extensionRegistry::impl) { player, message ->
-        session(player)?.let { send(it, message) }
-    }
-
-    override val furniture: FurnitureManager = FurnitureManager(plugin, log, extensionRegistry::impl) { player, message ->
-        session(player)?.let { send(it, message as ClientboundMessage) }
-    }
-
-    val keybindRegistry = KeybindRegistry(
-        pressedLookup = { player, id -> sessions[player.uniqueId]?.pressedKeys?.contains(id) == true },
-        onChanged = ::scheduleKeybindBroadcast,
-    )
-
-    private val logger get() = log
 
     fun debug(message: () -> String) {
         if (settings().debug) logger.info("[debug] ${message()}")
@@ -137,7 +145,7 @@ class KilnImpl(
     // ---- notifications ------------------------------------------------------------------------------------
 
     override fun showToast(player: Player, title: Component, text: Component?, icon: ItemStack?, displayMillis: Int) {
-        require(displayMillis in 1..60_000) { "displayMillis out of range: $displayMillis" }
+        require(displayMillis in 1..MAX_TOAST_MILLIS) { "displayMillis out of range: $displayMillis" }
         val session = session(player) ?: return
         val iconData = icon?.takeUnless { it.isEmpty }?.let { ScreenConverter.stack(it, it.amount) }
         send(session, ShowToast(ScreenConverter.json(title), text?.let(ScreenConverter::json), iconData, displayMillis))
@@ -189,18 +197,9 @@ class KilnImpl(
 
     override fun keybinds(): Collection<Keybind> = keybindRegistry.all()
 
-    private fun scheduleKeybindBroadcast() {
-        if (keybindsDirty || sessions.isEmpty() || !plugin.isEnabled) return
-        keybindsDirty = true
-        // coalesce several (un)registrations in the same tick into one DeclareKeybinds
-        Bukkit.getScheduler().runTask(plugin, Runnable {
-            keybindsDirty = false
-            val message = DeclareKeybinds(keybindRegistry.declarations())
-            sessions.values.forEach { send(it, message) }
-        })
-    }
+    // ---- creative tabs ------------------------------------------------------------------------------------
 
-    private fun sendCreativeTabs(session: PlayerSession, messages: List<dev.kiln.protocol.CreativeTabs>) {
+    private fun sendCreativeTabs(session: PlayerSession, messages: List<CreativeTabsMessage>) {
         for (message in messages) {
             try {
                 send(session, message)
@@ -208,17 +207,6 @@ class KilnImpl(
                 logger.warning("Creative tab ${message.tabs.firstOrNull()?.id} not sent to ${session.player.name}: ${e.message}")
             }
         }
-    }
-
-    private fun scheduleCreativeBroadcast() {
-        if (creativeDirty || sessions.isEmpty() || !plugin.isEnabled) return
-        creativeDirty = true
-        // coalesce several changes in the same tick into one update
-        Bukkit.getScheduler().runTask(plugin, Runnable {
-            creativeDirty = false
-            val messages = creativeTabs.messages()
-            sessions.values.forEach { sendCreativeTabs(it, messages) }
-        })
     }
 
     // ---- Lua extensions -----------------------------------------------------------------------------------
@@ -281,12 +269,9 @@ class KilnImpl(
 
     /** Entry point from the plugin messenger: rate limit, decode, then handle on the player's thread. */
     fun receive(player: Player, bytes: ByteArray) {
-        val limiter = rateLimiters.computeIfAbsent(player.uniqueId) { RateLimiter(settings().rateLimitPerSecond) }
-        val accepted = synchronized(limiter) { limiter.tryAcquire() }
-        if (!accepted) {
-            if (limiter.rejectedInWindow == 1) logger.warning("${player.name} exceeds ${settings().rateLimitPerSecond} kiln messages/s; dropping")
-            return
-        }
+        val perSecond = settings().rateLimitPerSecond
+        val limiter = rateLimiters.computeIfAbsent(player.uniqueId) { RateLimiter(perSecond) }
+        if (!limiter.admits(player, "kiln messages", perSecond)) return
         val message = try {
             MessageCodec.decodeServerbound(bytes)
         } catch (e: ProtocolException) {
@@ -298,6 +283,13 @@ class KilnImpl(
         } else {
             player.scheduler.run(plugin, { handle(player, message) }, null)
         }
+    }
+
+    /** Counts one message of [player]; logs the first rejection per window. Thread-safe per limiter. */
+    private fun RateLimiter.admits(player: Player, what: String, perSecond: Int): Boolean {
+        if (synchronized(this) { tryAcquire() }) return true
+        if (rejectedInWindow == 1) logger.warning("${player.name} exceeds $perSecond $what/s; dropping")
+        return false
     }
 
     private fun handle(player: Player, message: ServerboundMessage) {
@@ -312,7 +304,7 @@ class KilnImpl(
             is ScreenInput -> onInput(session, message)
             is ScreenClosed -> onClosed(session, message)
             is ModalDismiss -> onModalDismiss(session, message)
-            is dev.kiln.protocol.Viewport -> onViewport(session, message)
+            is ViewportMessage -> onViewport(session, message)
             is KeyPressed -> onKey(session, message.keyId, pressed = true)
             is KeyReleased -> onKey(session, message.keyId, pressed = false)
             is ExtensionMessage -> onExtension(session, message)
@@ -322,25 +314,22 @@ class KilnImpl(
         }
     }
 
+    /** `true` for [Validation.Valid]; otherwise logs (debug) that the [event] of [session] is dropped. */
+    private fun isValid(session: PlayerSession, event: String, result: Validation): Boolean {
+        if (result !is Validation.Invalid) return true
+        debug { "Dropping $event from ${session.player.name}: ${result.reason}" }
+        return false
+    }
+
     private fun onClick(session: PlayerSession, event: ScreenClick) {
         val screen = session.screen
-        val result = EventValidator.validateClick(event, screen?.id, screen?.tree)
-        if (result is Validation.Invalid) {
-            debug { "Dropping click from ${session.player.name}: ${result.reason}" }
-            return
-        }
+        if (!isValid(session, "click", EventValidator.validateClick(event, screen?.id, screen?.tree))) return
         val handler = screen!!.tree!!.clickHandlers[event.elementId] ?: return
-        val button = when (event.button) {
-            0 -> MouseButton.LEFT
-            1 -> MouseButton.RIGHT
-            2 -> MouseButton.MIDDLE
-            else -> MouseButton.OTHER
-        }
         val mods = event.modifiers
         runHandler("click handler '${event.elementId}' of $screen") {
             handler(
                 ClickContext(
-                    session.player, screen, event.elementId, button,
+                    session.player, screen, event.elementId, mouseButton(event.button),
                     shift = mods and ClickModifiers.SHIFT != 0,
                     control = mods and ClickModifiers.CONTROL != 0,
                     alt = mods and ClickModifiers.ALT != 0,
@@ -349,13 +338,16 @@ class KilnImpl(
         }
     }
 
+    private fun mouseButton(code: Int): MouseButton = when (code) {
+        0 -> MouseButton.LEFT
+        1 -> MouseButton.RIGHT
+        2 -> MouseButton.MIDDLE
+        else -> MouseButton.OTHER
+    }
+
     private fun onInput(session: PlayerSession, event: ScreenInput) {
         val screen = session.screen
-        val result = EventValidator.validateInput(event, screen?.id, screen?.tree)
-        if (result is Validation.Invalid) {
-            debug { "Dropping input from ${session.player.name}: ${result.reason}" }
-            return
-        }
+        if (!isValid(session, "input", EventValidator.validateInput(event, screen?.id, screen?.tree))) return
         screen!!.clientInput(event.elementId, event.value)
         val handler = screen.tree!!.inputHandlers[event.elementId] ?: return
         runHandler("input handler '${event.elementId}' of $screen") {
@@ -365,11 +357,7 @@ class KilnImpl(
 
     private fun onModalDismiss(session: PlayerSession, event: ModalDismiss) {
         val screen = session.screen
-        val result = EventValidator.validateModalDismiss(event, screen?.id, screen?.tree)
-        if (result is Validation.Invalid) {
-            debug { "Dropping modal dismiss from ${session.player.name}: ${result.reason}" }
-            return
-        }
+        if (!isValid(session, "modal dismiss", EventValidator.validateModalDismiss(event, screen?.id, screen?.tree))) return
         val handler = screen!!.tree!!.dismissHandlers[event.modalId] ?: return
         runHandler("dismiss handler of modal '${event.modalId}' of $screen") {
             handler(ModalDismissContext(session.player, screen, event.modalId))
@@ -377,7 +365,7 @@ class KilnImpl(
     }
 
     /** Stores the new viewport and re-renders the open screen (sends an update only if the tree changed). */
-    private fun onViewport(session: PlayerSession, event: dev.kiln.protocol.Viewport) {
+    private fun onViewport(session: PlayerSession, event: ViewportMessage) {
         val viewport = Viewport(event.width, event.height)
         if (session.viewport == viewport) return
         session.viewport = viewport
@@ -414,13 +402,9 @@ class KilnImpl(
 
     private fun onExtension(session: PlayerSession, message: ExtensionMessage) {
         val player = session.player
-        val limiter = extensionRateLimiters.getOrPut(player.uniqueId) { RateLimiter(settings().extensionMessagesPerSecond) }
-        if (!limiter.tryAcquire()) {
-            if (limiter.rejectedInWindow == 1) {
-                logger.warning("${player.name} exceeds ${settings().extensionMessagesPerSecond} extension messages/s; dropping")
-            }
-            return
-        }
+        val perSecond = settings().extensionMessagesPerSecond
+        val limiter = extensionRateLimiters.getOrPut(player.uniqueId) { RateLimiter(perSecond) }
+        if (!limiter.admits(player, "extension messages", perSecond)) return
         val channel = extensionRegistry.channel(message.channel)
         if (channel == null) {
             debug { "No handler for extension channel ${message.channel} (from ${player.name})" }
@@ -449,7 +433,7 @@ class KilnImpl(
     fun onQuit(player: Player) {
         rateLimiters.remove(player.uniqueId)
         extensionRateLimiters.remove(player.uniqueId)
-        val session = sessions[player.uniqueId]?.takeIf { it.player === player } ?: return
+        val session = session(player) ?: return
         sessions.remove(player.uniqueId)
         session.outbox.clear()
         session.pressedKeys.clear()
@@ -484,5 +468,6 @@ class KilnImpl(
 
     private companion object {
         const val MAX_QUEUED = 256
+        const val MAX_TOAST_MILLIS = 60_000
     }
 }

@@ -1,17 +1,15 @@
 package dev.kiln.server.runtime.handshake
 
-import dev.kiln.protocol.ClientboundMessage
-import dev.kiln.protocol.ExtensionChunk
-import dev.kiln.protocol.ExtensionManifest
-import dev.kiln.protocol.ExtensionRequest
-import dev.kiln.protocol.ExtensionsReady
-import dev.kiln.protocol.Hello
-import dev.kiln.protocol.KeyPressed
+import dev.kiln.protocol.message.ClientboundMessage
+import dev.kiln.protocol.message.ExtensionChunk
+import dev.kiln.protocol.message.ExtensionManifest
+import dev.kiln.protocol.message.ExtensionRequest
+import dev.kiln.protocol.message.ExtensionsReady
+import dev.kiln.protocol.message.Hello
+import dev.kiln.protocol.message.KeyPressed
 import dev.kiln.protocol.PROTOCOL_VERSION
 import dev.kiln.protocol.ProtocolLimits
-import dev.kiln.protocol.ServerboundMessage
-import dev.kiln.protocol.Welcome
-import dev.kiln.protocol.codec.MessageCodec
+import dev.kiln.protocol.message.Welcome
 import dev.kiln.server.runtime.extension.ExtensionPackage
 import dev.kiln.server.runtime.extension.ExtensionPackager
 import org.junit.jupiter.api.Assertions.assertArrayEquals
@@ -37,46 +35,11 @@ class ConfigurationHandshakeTest {
     private val small = pkg("small")
     private val large = pkg("large", ProtocolLimits.MAX_EXTENSION_CHUNK_BYTES + 1000)
 
-    /** Scripted client: reacts to server messages by putting its answers into the inbox. */
-    private inner class FakeClient(
-        val inbox: HandshakeInbox = HandshakeInbox(),
-        var registered: Boolean = true,
-        val onManifest: (ExtensionManifest) -> ServerboundMessage? = { ExtensionRequest(it.extensions.map { e -> e.id }) },
-        val ready: ServerboundMessage? = ExtensionsReady(true),
-    ) : HandshakeLink {
-        val sent = ArrayList<ClientboundMessage>()
-        var open = true
-        private var expectedChunks = 0
-
-        override fun send(message: ClientboundMessage) {
-            // everything must survive the real codec
-            sent += MessageCodec.decodeClientbound(MessageCodec.encodeClientbound(message))
-            when (message) {
-                is ExtensionManifest -> {
-                    val answer = onManifest(message)
-                    val requested = (answer as? ExtensionRequest)?.ids?.toSet().orEmpty()
-                    expectedChunks = message.extensions.filter { it.id in requested }.sumOf { it.chunkCount }
-                    answer?.let(::reply)
-                    if (answer != null && expectedChunks == 0) ready?.let(::reply)
-                }
-                is ExtensionChunk -> if (--expectedChunks == 0) ready?.let(::reply)
-                else -> Unit
-            }
-        }
-
-        fun reply(message: ServerboundMessage) = inbox.offerBytes(MessageCodec.encodeServerbound(message))
-
-        override fun isOpen(): Boolean = open
-
-        override fun channelRegistered(): Boolean = registered
-
-        fun run(packages: List<ExtensionPackage> = listOf(small, large)) =
-            ConfigurationHandshake(this, inbox, packages, timeouts).run()
-    }
+    private fun FakeHandshakeClient.run(packages: List<ExtensionPackage> = listOf(small, large)) = run(packages, timeouts)
 
     @Test
     fun `dependency problems disconnect after the version check without a manifest`() {
-        val client = FakeClient()
+        val client = FakeHandshakeClient()
         client.reply(Hello(PROTOCOL_VERSION, emptyList()))
         val result = ConfigurationHandshake(client, client.inbox, emptyList(), timeouts, dependencyProblems = listOf("Extension 'shop' needs 'ui_kit'")).run()
         assertInstanceOf(HandshakeResult.Kick::class.java, result)
@@ -86,7 +49,7 @@ class ConfigurationHandshakeTest {
 
     @Test
     fun `full download succeeds and chunks reassemble to the announced packages`() {
-        val client = FakeClient()
+        val client = FakeHandshakeClient()
         client.reply(Hello(PROTOCOL_VERSION, emptyList()))
         assertEquals(HandshakeResult.Success, client.run())
 
@@ -105,12 +68,12 @@ class ConfigurationHandshakeTest {
 
     @Test
     fun `cached packages are not streamed and an empty manifest works`() {
-        val client = FakeClient(onManifest = { ExtensionRequest(listOf("large")) })
+        val client = FakeHandshakeClient(onManifest = { ExtensionRequest(listOf("large")) })
         client.reply(Hello(PROTOCOL_VERSION, emptyList()))
         assertEquals(HandshakeResult.Success, client.run())
         assertTrue(client.sent.filterIsInstance<ExtensionChunk>().all { it.id == "large" })
 
-        val empty = FakeClient(onManifest = { ExtensionRequest(emptyList()) })
+        val empty = FakeHandshakeClient(onManifest = { ExtensionRequest(emptyList()) })
         empty.reply(Hello(PROTOCOL_VERSION, emptyList()))
         assertEquals(HandshakeResult.Success, empty.run(emptyList()))
         assertEquals(ExtensionManifest(emptyList()), empty.sent[1])
@@ -118,7 +81,7 @@ class ConfigurationHandshakeTest {
 
     @Test
     fun `download limit kicks before any chunk is sent`() {
-        val client = FakeClient()
+        val client = FakeHandshakeClient()
         client.reply(Hello(PROTOCOL_VERSION, emptyList()))
         var asked = -1L
         val result = ConfigurationHandshake(client, client.inbox, listOf(small, large), timeouts, allowDownload = { asked = it; false }).run()
@@ -129,13 +92,13 @@ class ConfigurationHandshakeTest {
 
     @Test
     fun `no hello means no runtime`() {
-        val result = FakeClient().run()
+        val result = FakeHandshakeClient().run()
         assertEquals(KickMessages.NO_RUNTIME, (result as HandshakeResult.Kick).reason)
     }
 
     @Test
     fun `version mismatch kicks after telling the client the server version`() {
-        val client = FakeClient()
+        val client = FakeHandshakeClient()
         client.reply(Hello(2, listOf("old_mod")))
         val result = client.run() as HandshakeResult.Kick
         assertEquals(KickMessages.versionMismatch(2), result.reason)
@@ -145,7 +108,7 @@ class ConfigurationHandshakeTest {
 
     @Test
     fun `unregistered channel kicks`() {
-        val client = FakeClient(registered = false)
+        val client = FakeHandshakeClient(registered = false)
         client.reply(Hello(PROTOCOL_VERSION, emptyList()))
         assertEquals(KickMessages.CHANNEL_NOT_REGISTERED, (client.run() as HandshakeResult.Kick).reason)
         assertTrue(client.sent.isEmpty())
@@ -153,13 +116,13 @@ class ConfigurationHandshakeTest {
 
     @Test
     fun `client error and refusal`() {
-        val failing = FakeClient(ready = ExtensionsReady(false, "main.lua:1: boom"))
+        val failing = FakeHandshakeClient(ready = ExtensionsReady(false, "main.lua:1: boom"))
         failing.reply(Hello(PROTOCOL_VERSION, emptyList()))
         val result = failing.run() as HandshakeResult.Kick
         assertTrue(result.reason.contains("main.lua:1: boom"))
 
         // consent declined: the client closes the connection
-        val declining = FakeClient(onManifest = { null })
+        val declining = FakeHandshakeClient(onManifest = { null })
         declining.reply(Hello(PROTOCOL_VERSION, emptyList()))
         Thread { Thread.sleep(50); declining.open = false }.start()
         assertEquals(HandshakeResult.Closed, declining.run())
@@ -168,9 +131,9 @@ class ConfigurationHandshakeTest {
     @Test
     fun `nothing is streamed before the client consented and the consent time is separate`() {
         // the client sits in its consent screen longer than the download timeout before it requests the packages
-        lateinit var client: FakeClient
+        lateinit var client: FakeHandshakeClient
         var chunksBeforeRequest = -1
-        client = FakeClient(onManifest = { manifest ->
+        client = FakeHandshakeClient(onManifest = { manifest ->
             Thread {
                 Thread.sleep(timeouts.extensionsMillis + 100)
                 chunksBeforeRequest = client.sent.count { it is ExtensionChunk }
@@ -199,7 +162,7 @@ class ConfigurationHandshakeTest {
             "main.lua" to ByteArray(0),
             "icon.png" to icon,
         ))
-        val client = FakeClient()
+        val client = FakeHandshakeClient()
         client.reply(Hello(PROTOCOL_VERSION, emptyList()))
         assertEquals(HandshakeResult.Success, client.run(listOf(withIcon)))
         assertArrayEquals(icon, (client.sent[1] as ExtensionManifest).extensions.single().icon)
@@ -207,36 +170,36 @@ class ConfigurationHandshakeTest {
 
     @Test
     fun `missing answers time out`() {
-        val noRequest = FakeClient(onManifest = { null })
+        val noRequest = FakeHandshakeClient(onManifest = { null })
         noRequest.reply(Hello(PROTOCOL_VERSION, emptyList()))
         // no answer to the consent screen: its own message, not "not loaded in time"
         assertEquals(KickMessages.CONSENT_TIMEOUT, (noRequest.run() as HandshakeResult.Kick).reason)
         assertTrue(KickMessages.CONSENT_TIMEOUT.startsWith("Keine Antwort auf die Zustimmungsabfrage"))
 
-        val noReady = FakeClient(ready = null)
+        val noReady = FakeHandshakeClient(ready = null)
         noReady.reply(Hello(PROTOCOL_VERSION, emptyList()))
         assertEquals(KickMessages.TIMEOUT, (noReady.run() as HandshakeResult.Kick).reason)
     }
 
     @Test
     fun `protocol violations kick`() {
-        val unknown = FakeClient(onManifest = { ExtensionRequest(listOf("nope")) })
+        val unknown = FakeHandshakeClient(onManifest = { ExtensionRequest(listOf("nope")) })
         unknown.reply(Hello(PROTOCOL_VERSION, emptyList()))
         assertTrue((unknown.run() as HandshakeResult.Kick).reason.contains("nope"))
 
-        val wrongOrder = FakeClient(onManifest = { ExtensionsReady(true) })
+        val wrongOrder = FakeHandshakeClient(onManifest = { ExtensionsReady(true) })
         wrongOrder.reply(Hello(PROTOCOL_VERSION, emptyList()))
         assertInstanceOf(HandshakeResult.Kick::class.java, wrongOrder.run())
 
-        val playMessage = FakeClient()
+        val playMessage = FakeHandshakeClient()
         playMessage.reply(KeyPressed("x"))
         assertInstanceOf(HandshakeResult.Kick::class.java, playMessage.run())
 
-        val garbage = FakeClient()
+        val garbage = FakeHandshakeClient()
         garbage.inbox.offerBytes(byteArrayOf(99, 1, 2))
         assertTrue((garbage.run() as HandshakeResult.Kick).reason.startsWith("Ungültige"))
 
-        val flood = FakeClient()
+        val flood = FakeHandshakeClient()
         repeat(100) { flood.reply(Hello(PROTOCOL_VERSION, emptyList())) }
         assertTrue((flood.run() as HandshakeResult.Kick).reason.contains("zu viele"))
     }
@@ -248,9 +211,9 @@ class ConfigurationHandshakeTest {
             "extension.json" to """{"id":"res","version":"1","name":"res"}""".toByteArray(),
             "assets/res/models/item/a.json" to "{}".toByteArray(),
         ))
-        fun slowClient(): FakeClient {
-            lateinit var client: FakeClient
-            client = FakeClient(ready = null, onManifest = { manifest ->
+        fun slowClient(): FakeHandshakeClient {
+            lateinit var client: FakeHandshakeClient
+            client = FakeHandshakeClient(ready = null, onManifest = { manifest ->
                 // download done at once, then a resource reload longer than extensionsMillis
                 Thread {
                     Thread.sleep(timeouts.extensionsMillis + 200)

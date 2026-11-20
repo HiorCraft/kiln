@@ -1,9 +1,9 @@
 package dev.kiln.server.runtime.screen
 
+import dev.kiln.protocol.message.ModalDismiss
+import dev.kiln.protocol.message.ScreenClick
+import dev.kiln.protocol.message.ScreenInput
 import dev.kiln.server.api.screen.screen
-import dev.kiln.protocol.ModalDismiss
-import dev.kiln.protocol.ScreenClick
-import dev.kiln.protocol.ScreenInput
 import net.kyori.adventure.key.Key
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue

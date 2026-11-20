@@ -3,16 +3,13 @@ package dev.kiln.server.runtime.screen
 import dev.kiln.server.api.screen.ButtonElement
 import dev.kiln.server.api.screen.CheckboxElement
 import dev.kiln.server.api.screen.CheckboxStyle as ApiCheckboxStyle
-import dev.kiln.server.api.screen.ClickContext
 import dev.kiln.server.api.screen.ContainerElement
 import dev.kiln.server.api.screen.CustomElement
 import dev.kiln.server.api.screen.DropdownElement
 import dev.kiln.server.api.screen.ImageElement
-import dev.kiln.server.api.screen.InputContext
 import dev.kiln.server.api.screen.ItemElement
 import dev.kiln.server.api.screen.ItemSlotElement
 import dev.kiln.server.api.screen.Layout
-import dev.kiln.server.api.screen.ModalDismissContext
 import dev.kiln.server.api.screen.ModalElement
 import dev.kiln.server.api.screen.PanelElement
 import dev.kiln.server.api.screen.ProgressBarElement
@@ -24,30 +21,29 @@ import dev.kiln.server.api.screen.SliderElement
 import dev.kiln.server.api.screen.TextElement
 import dev.kiln.server.api.screen.TextFieldElement
 import dev.kiln.protocol.Bounds
-import dev.kiln.protocol.Button
-import dev.kiln.protocol.Checkbox
-import dev.kiln.protocol.CheckboxStyle
+import dev.kiln.protocol.element.Button
+import dev.kiln.protocol.element.Checkbox
+import dev.kiln.protocol.element.CheckboxStyle
 import dev.kiln.protocol.Color
-import dev.kiln.protocol.Container
-import dev.kiln.protocol.Custom
-import dev.kiln.protocol.Dropdown
-import dev.kiln.protocol.DropdownOption
-import dev.kiln.protocol.Element
-import dev.kiln.protocol.Image
-import dev.kiln.protocol.ItemDisplay
-import dev.kiln.protocol.ItemSlot
+import dev.kiln.protocol.element.Custom
+import dev.kiln.protocol.element.Dropdown
+import dev.kiln.protocol.element.DropdownOption
+import dev.kiln.protocol.element.Element
+import dev.kiln.protocol.element.Image
+import dev.kiln.protocol.element.ItemDisplay
+import dev.kiln.protocol.element.ItemSlot
 import dev.kiln.protocol.ItemStackData
-import dev.kiln.protocol.Modal
-import dev.kiln.protocol.NumericRange
-import dev.kiln.protocol.Panel
-import dev.kiln.protocol.ProgressBar
+import dev.kiln.protocol.element.Modal
+import dev.kiln.protocol.element.NumericRange
+import dev.kiln.protocol.element.Panel
+import dev.kiln.protocol.element.ProgressBar
 import dev.kiln.protocol.ProtocolException
 import dev.kiln.protocol.ResourceId
-import dev.kiln.protocol.ScrollPanel
-import dev.kiln.protocol.Slider
-import dev.kiln.protocol.Text
+import dev.kiln.protocol.element.ScrollPanel
+import dev.kiln.protocol.element.Slider
+import dev.kiln.protocol.element.Text
 import dev.kiln.protocol.TextAlign
-import dev.kiln.protocol.TextField
+import dev.kiln.protocol.element.TextField
 import dev.kiln.protocol.codec.ElementCodec
 import net.kyori.adventure.key.Key
 import net.kyori.adventure.text.Component
@@ -56,56 +52,15 @@ import org.bukkit.inventory.ItemStack
 import dev.kiln.server.api.screen.TextAlign as ApiTextAlign
 import org.bukkit.Color as BukkitColor
 
-/**
- * Result of converting a [RenderedScreen]: the wire tree plus the server-side handlers, indexed by element id.
- * The tree is already validated against the protocol limits.
- */
-class ConvertedScreen(
-    val root: Panel,
-    val clickHandlers: Map<String, (ClickContext) -> Unit>,
-    val inputHandlers: Map<String, (InputContext) -> Unit>,
-    val dismissHandlers: Map<String, (ModalDismissContext) -> Unit> = emptyMap(),
-    val fullscreen: Boolean = false,
-) {
-    /** All elements of [root] by id. */
-    val elements: Map<String, Element>
-
-    /** Element id -> id of the [Modal] containing it (the modal itself included); absent for elements outside modals. */
-    val modalOf: Map<String, String>
-
-    init {
-        val all = LinkedHashMap<String, Element>()
-        val modals = HashMap<String, String>()
-        fun visit(element: Element, modal: String?) {
-            all[element.id] = element
-            val inModal = if (element is Modal) element.id else modal
-            if (inModal != null) modals[element.id] = inModal
-            if (element is Container) element.children.forEach { visit(it, inModal) }
-        }
-        visit(root, null)
-        elements = all
-        modalOf = modals
-    }
-
-    /** The modal currently receiving input (last modal among the root's children), or `null`. */
-    val topModal: Modal? = root.children.lastOrNull { it is Modal } as Modal?
-}
-
 /** Converts DSL trees ([dev.kiln.server.api.screen]) into protocol trees ([dev.kiln.protocol]). */
 object ScreenConverter {
-
-    private class Handlers {
-        val clicks = LinkedHashMap<String, (ClickContext) -> Unit>()
-        val inputs = LinkedHashMap<String, (InputContext) -> Unit>()
-        val dismisses = LinkedHashMap<String, (ModalDismissContext) -> Unit>()
-    }
 
     /**
      * Converts [screen], resolving layouts into parent-relative bounds, and validates the result.
      * @throws IllegalArgumentException if the tree violates a protocol limit (size, depth, ids, strings ...).
      */
     fun convert(screen: RenderedScreen): ConvertedScreen {
-        val handlers = Handlers()
+        val handlers = ScreenHandlers()
         val r = screen.root
         val root = convertElement(r, Bounds(r.x, r.y, r.width, r.height), handlers) as Panel
         try {
@@ -116,7 +71,7 @@ object ScreenConverter {
         return ConvertedScreen(root, handlers.clicks, handlers.inputs, handlers.dismisses, screen.fullscreen)
     }
 
-    private fun convertChildren(container: ContainerElement, handlers: Handlers): Pair<List<Element>, Int> {
+    private fun convertChildren(container: ContainerElement, handlers: ScreenHandlers): Pair<List<Element>, Int> {
         val positions = LayoutResolver.resolve(container.layout, container.children)
         var bottom = 0
         val children = container.children.mapIndexed { i, child ->
@@ -132,7 +87,7 @@ object ScreenConverter {
         return children to bottom + padding
     }
 
-    private fun convertElement(element: ScreenElement, bounds: Bounds, handlers: Handlers): Element {
+    private fun convertElement(element: ScreenElement, bounds: Bounds, handlers: ScreenHandlers): Element {
         val tooltip = element.tooltip?.let(::json)
         return when (element) {
             is PanelElement -> {

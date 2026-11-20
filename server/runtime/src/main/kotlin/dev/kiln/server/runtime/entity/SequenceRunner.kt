@@ -1,14 +1,5 @@
 package dev.kiln.server.runtime.entity
 
-/** One step of a timed behaviour sequence ("Ablauf") on context [C]. */
-sealed interface SequenceStep<in C> {
-    /** Runs right away; consecutive runs happen in the same tick. */
-    class Run<C>(val action: (C) -> Unit) : SequenceStep<C>
-
-    /** Pauses for [ticks] ticks. */
-    class Wait(val ticks: Int) : SequenceStep<Any?>
-}
-
 /**
  * Runs [steps] tick by tick without threads: [tick] executes every run step up to the next wait and returns `true`
  * once the sequence is finished. Exceptions of a step reach the caller (it stops the goal).
@@ -31,16 +22,5 @@ class SequenceRunner<C>(private val steps: List<SequenceStep<C>>) {
             }
         }
         return true
-    }
-}
-
-/** Named cooldowns in ticks of a game clock. */
-class Cooldowns {
-    private val until = HashMap<String, Long>()
-
-    fun ready(name: String, now: Long): Boolean = now >= (until[name] ?: Long.MIN_VALUE)
-
-    fun start(name: String, ticks: Int, now: Long) {
-        until[name] = now + ticks
     }
 }

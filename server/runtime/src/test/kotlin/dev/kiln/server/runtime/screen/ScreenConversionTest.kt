@@ -1,31 +1,40 @@
 package dev.kiln.server.runtime.screen
 
-import dev.kiln.server.api.screen.Layout
-import dev.kiln.server.api.screen.TextAlign
-import dev.kiln.server.api.screen.screen
 import dev.kiln.protocol.Bounds
-import dev.kiln.protocol.Button
 import dev.kiln.protocol.Color
-import dev.kiln.protocol.Custom
-import dev.kiln.protocol.Image
-import dev.kiln.protocol.ItemDisplay
-import dev.kiln.protocol.Panel
-import dev.kiln.protocol.ProgressBar
 import dev.kiln.protocol.ResourceId
-import dev.kiln.protocol.Text
-import dev.kiln.protocol.TextField
 import dev.kiln.protocol.codec.ElementCodec
 import dev.kiln.protocol.codec.ProtocolReader
 import dev.kiln.protocol.codec.ProtocolWriter
+import dev.kiln.protocol.element.Button
+import dev.kiln.protocol.element.Checkbox
+import dev.kiln.protocol.element.CheckboxStyle
+import dev.kiln.protocol.element.Custom
+import dev.kiln.protocol.element.Dropdown
+import dev.kiln.protocol.element.Image
+import dev.kiln.protocol.element.ItemDisplay
+import dev.kiln.protocol.element.ItemSlot
+import dev.kiln.protocol.element.Modal
+import dev.kiln.protocol.element.NumericRange
+import dev.kiln.protocol.element.Panel
+import dev.kiln.protocol.element.ProgressBar
+import dev.kiln.protocol.element.ScrollPanel
+import dev.kiln.protocol.element.Slider
+import dev.kiln.protocol.element.Text
+import dev.kiln.protocol.element.TextField
+import dev.kiln.protocol.message.Viewport
+import dev.kiln.server.api.screen.Layout
+import dev.kiln.server.api.screen.TextAlign
+import dev.kiln.server.api.screen.screen
 import net.kyori.adventure.key.Key
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
+import org.bukkit.Color as BukkitColor
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
-import org.bukkit.Color as BukkitColor
 
 class ScreenConversionTest {
 
@@ -216,10 +225,10 @@ class ScreenConversionTest {
                 text("deep", y = 30_000, width = 10)
             }
         }.root
-        val auto = root.children[0] as dev.kiln.protocol.ScrollPanel
+        val auto = root.children[0] as dev.kiln.protocol.element.ScrollPanel
         assertEquals(4 + 10 * 10 + 9 * 2 + 4, auto.contentHeight) // bottom of the last row plus padding
         assertEquals(10, auto.children.size)
-        val fixed = root.children[1] as dev.kiln.protocol.ScrollPanel
+        val fixed = root.children[1] as dev.kiln.protocol.element.ScrollPanel
         assertEquals(500, fixed.contentHeight)
         assertEquals(30_000, fixed.children[0].bounds.y)
     }
@@ -249,14 +258,14 @@ class ScreenConversionTest {
         }
         val tile = converted.elements.getValue("tile") as Panel
         assertTrue(tile.clickable && tile.selected && tile.hoverBackground == Color.WHITE && tile.tooltip!!.contains("tile"))
-        val dropdown = converted.elements.getValue("sort") as dev.kiln.protocol.Dropdown
+        val dropdown = converted.elements.getValue("sort") as dev.kiln.protocol.element.Dropdown
         assertEquals(listOf("price", "name"), dropdown.options.map { it.value })
         assertEquals("name", dropdown.selected)
-        val checkbox = converted.elements.getValue("mine") as dev.kiln.protocol.Checkbox
-        assertEquals(dev.kiln.protocol.CheckboxStyle.TOGGLE, checkbox.style)
-        assertEquals(64.0, (converted.elements.getValue("amount") as dev.kiln.protocol.Slider).value) // clamped
-        assertEquals(dev.kiln.protocol.NumericRange(0.0, 1000.0, true), (converted.elements.getValue("price") as TextField).numeric)
-        val modal = converted.elements.getValue("confirm") as dev.kiln.protocol.Modal
+        val checkbox = converted.elements.getValue("mine") as dev.kiln.protocol.element.Checkbox
+        assertEquals(dev.kiln.protocol.element.CheckboxStyle.TOGGLE, checkbox.style)
+        assertEquals(64.0, (converted.elements.getValue("amount") as dev.kiln.protocol.element.Slider).value) // clamped
+        assertEquals(dev.kiln.protocol.element.NumericRange(0.0, 1000.0, true), (converted.elements.getValue("price") as TextField).numeric)
+        val modal = converted.elements.getValue("confirm") as dev.kiln.protocol.element.Modal
         assertEquals(Bounds(100, 70, 100, 60), modal.bounds) // centered
         assertEquals("confirm", converted.topModal?.id)
         assertEquals("confirm", converted.modalOf["yes"])
@@ -285,7 +294,7 @@ class ScreenConversionTest {
         assertEquals(Bounds(0, 0, 18, 18), converted.elements.getValue("inv/9").bounds)
         assertEquals(Bounds(144, 36, 18, 18), converted.elements.getValue("inv/35").bounds)
         assertEquals(Bounds(0, 58, 18, 18), converted.elements.getValue("inv/0").bounds)
-        val hotbar0 = converted.elements.getValue("inv/0") as dev.kiln.protocol.ItemSlot
+        val hotbar0 = converted.elements.getValue("inv/0") as dev.kiln.protocol.element.ItemSlot
         assertEquals(false, hotbar0.enabled)
         assertNull(hotbar0.item)
         converted.clickHandlers.getValue("inv/17").invoke(dummyClick())

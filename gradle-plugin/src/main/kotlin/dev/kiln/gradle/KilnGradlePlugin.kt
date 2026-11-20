@@ -3,7 +3,9 @@ package dev.kiln.gradle
 import net.minecrell.pluginyml.paper.PaperPluginDescription
 import org.gradle.api.Plugin
 import org.gradle.api.Project
-import org.gradle.api.artifacts.Configuration
+import org.gradle.api.file.FileCollection
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.tasks.bundling.Jar
 import xyz.jpenilla.runpaper.task.RunServer
 
 /**
@@ -44,30 +46,19 @@ class KilnGradlePlugin : Plugin<Project> {
         project.dependencies.add("compileOnly", "org.jetbrains.kotlin:kotlin-stdlib:${versions.kotlin}")
 
         // Kiln provides the Kotlin stdlib at runtime: a shaded copy would clash with it
-        project.tasks.withType(org.gradle.api.tasks.bundling.Jar::class.java).matching { it.name == "shadowJar" }.configureEach {
+        project.tasks.withType(Jar::class.java).matching { it.name == "shadowJar" }.configureEach {
             exclude("kotlin/**", "META-INF/kotlin-stdlib*.kotlin_module")
         }
 
         project.extensions.configure(PaperPluginDescription::class.java) {
-            serverDependencies.register("Kiln") {
-                load = PaperPluginDescription.RelativeLoadOrder.BEFORE
-                required = true
-                joinClasspath = true
-            }
+            serverDependencies.register(KILN_PLUGIN) { loadBeforeAndJoinClasspath() }
             // bootstrappers use the Kiln API too (e.g. KilnBootstrap for custom enchantments)
-            bootstrapDependencies.register("Kiln") {
-                load = PaperPluginDescription.RelativeLoadOrder.BEFORE
-                required = true
-                joinClasspath = true
-            }
+            bootstrapDependencies.register(KILN_PLUGIN) { loadBeforeAndJoinClasspath() }
         }
 
-        val kilnServer = artifactConfiguration(project, "kilnServer", { kiln.serverJar.isPresent }) {
-            "dev.kiln:kiln-server:${kiln.version.get()}"
-        }
+        val kilnServer = localJarOrArtifact(project, "kilnServer", kiln.serverJar) { "dev.kiln:kiln-server:${kiln.version.get()}" }
         project.tasks.named("runServer", RunServer::class.java) {
             minecraftVersion(kiln.minecraftVersion.get())
-            pluginJars.from(kiln.serverJar.map { listOf(it) }.orElse(emptyList()))
             pluginJars.from(kilnServer)
             runDirectory.set(kiln.runDirectory.dir("server"))
             jvmArgs("-Dcom.mojang.eula.agree=true")
@@ -86,13 +77,27 @@ class KilnGradlePlugin : Plugin<Project> {
         ClientRun.register(project, kiln, versions)
     }
 
+    /** Kiln is a required server dependency, loaded before this plugin and sharing its classpath. */
+    private fun PaperPluginDescription.DependencyDefinition.loadBeforeAndJoinClasspath() {
+        load = PaperPluginDescription.RelativeLoadOrder.BEFORE
+        required = true
+        joinClasspath = true
+    }
+
     companion object {
-        /** Resolvable configuration with one default dependency, left empty while [overridden] (a local jar is used). */
-        internal fun artifactConfiguration(project: Project, name: String, overridden: () -> Boolean, notation: () -> String): Configuration =
-            project.configurations.create(name) {
+        private const val KILN_PLUGIN = "Kiln"
+
+        /**
+         * The [localJar] when set, otherwise the artifact [notation] resolved through the configuration [name] (which
+         * stays empty while a local jar is used).
+         */
+        internal fun localJarOrArtifact(project: Project, name: String, localJar: RegularFileProperty, notation: () -> String): FileCollection {
+            val artifact = project.configurations.create(name) {
                 isCanBeConsumed = false
                 isTransitive = false
-                defaultDependencies { if (!overridden()) add(project.dependencies.create(notation())) }
+                defaultDependencies { if (!localJar.isPresent) add(project.dependencies.create(notation())) }
             }
+            return project.files(localJar.map { listOf(it) }.orElse(emptyList()), artifact)
+        }
     }
 }

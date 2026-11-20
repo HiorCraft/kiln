@@ -1,12 +1,12 @@
 package dev.kiln.server.runtime.extension
 
 import com.google.gson.JsonArray
+import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParseException
 import com.google.gson.JsonParser
 import com.google.gson.JsonPrimitive
 import dev.kiln.protocol.AssetRules
-import dev.kiln.protocol.ExtensionInfo
 import dev.kiln.protocol.ExtensionPermissions
 import dev.kiln.protocol.Ids
 import dev.kiln.protocol.ProtocolLimits
@@ -19,39 +19,6 @@ import java.util.zip.Deflater
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
-/** A package that failed validation; the message is meant for server admins / plugin developers. */
-class InvalidExtensionException(message: String, cause: Throwable? = null) : IllegalArgumentException(message, cause)
-
-/** A validated, packed extension: what is announced in the manifest and streamed to clients. */
-class ExtensionPackage(
-    val id: String,
-    val version: String,
-    val name: String,
-    /** Lua entry point, `null` for a resource-only package. */
-    val main: String?,
-    /** Canonical order ([ExtensionPermissions.ALL]). */
-    val permissions: List<String>,
-    /** Deterministic zip, files at the root. */
-    val zip: ByteArray,
-    val sha256: ByteArray,
-    /** Paths inside the zip, sorted. */
-    val files: List<String>,
-    /** Optional consent-screen icon (PNG), sent in the manifest. */
-    val icon: ByteArray? = null,
-    /** `extension.json` `dependencies` (ids + optional version ranges), in declaration order. */
-    val dependencies: List<ExtensionDependency> = emptyList(),
-    /** Sum of all file sizes (what the client holds in memory). */
-    val unpackedSize: Long = 0,
-) {
-    val sha256Hex: String get() = info.sha256Hex
-
-    /** The package carries a resource-pack tree (`assets/<id>/…`). */
-    val hasAssets: Boolean get() = files.any { it.startsWith(AssetRules.ROOT) }
-
-    val info: ExtensionInfo
-        get() = ExtensionInfo(id, version, name, sha256.copyOf(), zip.size, permissions, icon?.copyOf(), dependencies.map { it.id })
-}
-
 /**
  * Validates the files of an extension package and builds its deterministic zip (sorted entries, fixed timestamp,
  * fixed compression level, no directory entries or extra fields) plus SHA-256. Pure function, no Bukkit.
@@ -62,6 +29,8 @@ object ExtensionPackager {
     const val MAX_PATH_LENGTH = 192
     const val MAX_UNCOMPRESSED_BYTES = ProtocolLimits.MAX_EXTENSION_UNPACKED_BYTES
     const val MAX_MANIFEST_BYTES = 64 * 1024
+    private const val MAX_ID_LENGTH = 32
+    private const val DEFAULT_MAIN = "main.lua"
 
     /** Optional `icon` (shown in the client's consent screen): PNG, at most this many bytes and pixels per side. */
     const val MAX_ICON_BYTES = ProtocolLimits.MAX_EXTENSION_ICON_BYTES
@@ -70,6 +39,12 @@ object ExtensionPackager {
 
     private val SEGMENT = Regex("[a-z0-9_.-]+")
     private val PNG_MAGIC = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+    private val BINARY_ASSETS = setOf("ogg", "ttf", "otf")
+
+    /** PNG header: magic (8) + IHDR length (4) + "IHDR" (4), then width (4) and height (4). */
+    private const val IHDR_TYPE_OFFSET = 12
+    private const val IHDR_SIZE_OFFSET = 16
+    private const val IHDR_END = 24
 
     /** Fixed entry time: 1980-01-01 00:00, the minimum DOS timestamp (timezone independent via setTimeLocal). */
     private val ENTRY_TIME: LocalDateTime = LocalDateTime.of(1980, 1, 1, 0, 0)
@@ -79,40 +54,16 @@ object ExtensionPackager {
      * @param files relative path (`/`-separated) -> content.
      */
     fun build(expectedId: String, files: Map<String, ByteArray>): ExtensionPackage {
-        if (!Ids.isValidLuaExtensionId(expectedId)) {
-            throw InvalidExtensionException("Invalid extension id '$expectedId' (allowed: [a-z0-9_]{1,32})")
-        }
-        // the id is the namespace of the package's textures and translation keys (see Ids.RESERVED_NAMESPACES)
-        Ids.reservedNamespaceProblem(expectedId)?.let { throw InvalidExtensionException(it) }
-        if (files.size > MAX_FILES) throw InvalidExtensionException("Too many files (${files.size} > $MAX_FILES)")
-        var total = 0L
-        for ((path, bytes) in files) {
-            validatePath(path)
-            total += bytes.size
-            validateContent(expectedId, path, bytes)
-        }
-        if (total > MAX_UNCOMPRESSED_BYTES) {
-            throw InvalidExtensionException("Package too large uncompressed ($total > $MAX_UNCOMPRESSED_BYTES bytes)")
-        }
+        validateId(expectedId)
+        val total = validateFiles(expectedId, files)
 
-        val manifestBytes = files[MANIFEST_FILE] ?: throw InvalidExtensionException("$MANIFEST_FILE is missing")
-        val manifest = parseManifest(manifestBytes)
-
-        val id = manifest.string("id", 32)
+        val manifest = parseManifest(files[MANIFEST_FILE] ?: throw InvalidExtensionException("$MANIFEST_FILE is missing"))
+        val id = manifest.string("id", MAX_ID_LENGTH)
         if (id != expectedId) throw InvalidExtensionException("$MANIFEST_FILE id '$id' does not match '$expectedId'")
         val version = manifest.string("version", ProtocolLimits.MAX_EXTENSION_VERSION_LENGTH)
         val name = manifest.string("name", ProtocolLimits.MAX_EXTENSION_NAME_LENGTH)
-        // resource-only packages have no Lua: an explicit main must exist, the default main.lua is optional
-        val main = if (manifest.has("main")) manifest.string("main", MAX_PATH_LENGTH) else "main.lua".takeIf { it in files }
-        if (main != null) {
-            if (!main.endsWith(".lua")) throw InvalidExtensionException("main '$main' is not a .lua file")
-            if (main !in files) throw InvalidExtensionException("main '$main' does not exist")
-        }
-        val hasAssets = files.keys.any { it.startsWith(AssetRules.ROOT) }
-        // an assets/ tree implies the resources permission (shown in the consent screen)
-        val permissions = parsePermissions(manifest).let { requested ->
-            if (hasAssets && ExtensionPermissions.RESOURCES !in requested) ExtensionPermissions.ALL.filter { it in requested || it == ExtensionPermissions.RESOURCES } else requested
-        }
+        val main = parseMain(manifest, files)
+        val permissions = withImpliedPermissions(parsePermissions(manifest), files.keys)
         val icon = if (manifest.has("icon")) validateIcon(manifest.string("icon", MAX_PATH_LENGTH), files) else null
         val dependencies = parseDependencies(manifest, id)
 
@@ -123,6 +74,44 @@ object ExtensionPackager {
         }
         val sha256 = MessageDigest.getInstance("SHA-256").digest(zip)
         return ExtensionPackage(id, version, name, main, permissions, zip, sha256, sorted, icon, dependencies, total)
+    }
+
+    private fun validateId(id: String) {
+        if (!Ids.isValidLuaExtensionId(id)) throw InvalidExtensionException("Invalid extension id '$id' (allowed: [a-z0-9_]{1,32})")
+        // the id is the namespace of the package's textures and translation keys (see Ids.RESERVED_NAMESPACES)
+        Ids.reservedNamespaceProblem(id)?.let { throw InvalidExtensionException(it) }
+    }
+
+    /** Validates every path and content; returns the unpacked size. */
+    private fun validateFiles(id: String, files: Map<String, ByteArray>): Long {
+        if (files.size > MAX_FILES) throw InvalidExtensionException("Too many files (${files.size} > $MAX_FILES)")
+        var total = 0L
+        for ((path, bytes) in files) {
+            validatePath(path)
+            total += bytes.size
+            validateContent(id, path, bytes)
+        }
+        if (total > MAX_UNCOMPRESSED_BYTES) {
+            throw InvalidExtensionException("Package too large uncompressed ($total > $MAX_UNCOMPRESSED_BYTES bytes)")
+        }
+        return total
+    }
+
+    /** Resource-only packages have no Lua: an explicit main must exist, the default main.lua is optional. */
+    private fun parseMain(manifest: JsonObject, files: Map<String, ByteArray>): String? {
+        val main = if (manifest.has("main")) manifest.string("main", MAX_PATH_LENGTH) else DEFAULT_MAIN.takeIf { it in files }
+        if (main != null) {
+            if (!main.endsWith(".lua")) throw InvalidExtensionException("main '$main' is not a .lua file")
+            if (main !in files) throw InvalidExtensionException("main '$main' does not exist")
+        }
+        return main
+    }
+
+    /** An assets/ tree implies the resources permission (shown in the consent screen). */
+    private fun withImpliedPermissions(requested: List<String>, paths: Set<String>): List<String> {
+        val hasAssets = paths.any { it.startsWith(AssetRules.ROOT) }
+        if (!hasAssets || ExtensionPermissions.RESOURCES in requested) return requested
+        return ExtensionPermissions.ALL.filter { it in requested || it == ExtensionPermissions.RESOURCES }
     }
 
     fun validatePath(path: String) {
@@ -144,34 +133,42 @@ object ExtensionPackager {
         }
     }
 
-    private val BINARY_ASSETS = setOf("ogg", "ttf", "otf")
-
     private fun validateContent(id: String, path: String, bytes: ByteArray) {
         val asset = path.startsWith(AssetRules.ROOT)
         if (asset) AssetRules.problem(id, path, bytes.size)?.let { throw InvalidExtensionException(it) }
         val suffix = path.substringAfterLast('.', "")
-        if (path.endsWith(".png")) {
-            if (bytes.size < PNG_MAGIC.size || !bytes.copyOf(PNG_MAGIC.size).contentEquals(PNG_MAGIC)) {
-                throw InvalidExtensionException("'$path' is not a PNG file")
+        when {
+            path.endsWith(".png") -> {
+                if (bytes.size < PNG_MAGIC.size || !bytes.copyOf(PNG_MAGIC.size).contentEquals(PNG_MAGIC)) {
+                    throw InvalidExtensionException("'$path' is not a PNG file")
+                }
+                if (asset) validateAssetPng(path, bytes)
             }
-            if (asset) validateAssetPng(path, bytes)
-        } else if (asset && suffix in BINARY_ASSETS) {
-            return
-        } else {
-            try {
-                Charsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes))
-            } catch (e: CharacterCodingException) {
-                throw InvalidExtensionException("'$path' is not valid UTF-8", e)
+            asset && suffix in BINARY_ASSETS -> {}
+            else -> {
+                requireUtf8(path, bytes)
+                if (asset && (suffix == "json" || suffix == "mcmeta")) validateAssetJson(id, path, bytes.toString(Charsets.UTF_8))
             }
-            if (asset && (suffix == "json" || suffix == "mcmeta")) validateAssetJson(id, path, bytes.toString(Charsets.UTF_8))
         }
     }
 
+    private fun requireUtf8(path: String, bytes: ByteArray) {
+        try {
+            Charsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes))
+        } catch (e: CharacterCodingException) {
+            throw InvalidExtensionException("'$path' is not valid UTF-8", e)
+        }
+    }
+
+    /** Width and height from the IHDR chunk, or `null` without one. */
+    private fun pngSize(bytes: ByteArray): Pair<Int, Int>? {
+        if (bytes.size < IHDR_END || String(bytes, IHDR_TYPE_OFFSET, 4, Charsets.US_ASCII) != "IHDR") return null
+        val buffer = ByteBuffer.wrap(bytes, IHDR_SIZE_OFFSET, 8)
+        return buffer.int to buffer.int
+    }
+
     private fun validateAssetPng(path: String, bytes: ByteArray) {
-        if (bytes.size < 24 || String(bytes, 12, 4, Charsets.US_ASCII) != "IHDR") throw InvalidExtensionException("'$path' is not a valid PNG (no IHDR)")
-        val buffer = ByteBuffer.wrap(bytes, 16, 8)
-        val width = buffer.int
-        val height = buffer.int
+        val (width, height) = pngSize(bytes) ?: throw InvalidExtensionException("'$path' is not a valid PNG (no IHDR)")
         val max = ProtocolLimits.MAX_ASSET_TEXTURE_SIZE
         if (width !in 1..max || height !in 1..max) throw InvalidExtensionException("'$path' is ${width}x$height, at most ${max}x$max allowed")
     }
@@ -190,13 +187,7 @@ object ExtensionPackager {
         if (!icon.endsWith(".png")) throw InvalidExtensionException("icon '$icon' is not a .png file")
         val bytes = files[icon] ?: throw InvalidExtensionException("icon '$icon' does not exist")
         if (bytes.size > MAX_ICON_BYTES) throw InvalidExtensionException("icon '$icon' too large (${bytes.size} > $MAX_ICON_BYTES bytes)")
-        // IHDR: magic (8) + length (4) + "IHDR" (4) + width (4) + height (4)
-        if (bytes.size < 24 || String(bytes, 12, 4, Charsets.US_ASCII) != "IHDR") {
-            throw InvalidExtensionException("icon '$icon' is not a valid PNG")
-        }
-        val buffer = ByteBuffer.wrap(bytes, 16, 8)
-        val width = buffer.int
-        val height = buffer.int
+        val (width, height) = pngSize(bytes) ?: throw InvalidExtensionException("icon '$icon' is not a valid PNG")
         if (width !in 1..MAX_ICON_SIZE || height !in 1..MAX_ICON_SIZE) {
             throw InvalidExtensionException("icon '$icon' is ${width}x$height, at most ${MAX_ICON_SIZE}x$MAX_ICON_SIZE allowed")
         }
@@ -251,31 +242,33 @@ object ExtensionPackager {
         }
         val result = ArrayList<ExtensionDependency>()
         for (entry in raw) {
-            val dependency = when {
-                entry is JsonPrimitive && entry.isString -> ExtensionDependency(entry.asString)
-                entry is JsonObject -> {
-                    val id = entry.get("id")
-                    if (id !is JsonPrimitive || !id.isString) throw InvalidExtensionException("$MANIFEST_FILE: dependency objects need a string 'id'")
-                    val version = entry.get("version")
-                    val range = when {
-                        version == null -> null
-                        version is JsonPrimitive && version.isString -> try {
-                            VersionRange.parse(version.asString)
-                        } catch (e: IllegalArgumentException) {
-                            throw InvalidExtensionException("$MANIFEST_FILE: dependency '${id.asString}': ${e.message}", e)
-                        }
-                        else -> throw InvalidExtensionException("$MANIFEST_FILE: dependency 'version' must be a string")
-                    }
-                    ExtensionDependency(id.asString, range)
-                }
-                else -> throw InvalidExtensionException("$MANIFEST_FILE: dependencies must be ids or {\"id\", \"version\"} objects")
-            }
+            val dependency = parseDependency(entry)
             if (!Ids.isValidLuaExtensionId(dependency.id)) throw InvalidExtensionException("$MANIFEST_FILE: invalid dependency id '${dependency.id}'")
             if (dependency.id == ownId) throw InvalidExtensionException("$MANIFEST_FILE: an extension cannot depend on itself")
             if (result.any { it.id == dependency.id }) throw InvalidExtensionException("$MANIFEST_FILE: duplicate dependency '${dependency.id}'")
             result += dependency
         }
         return result
+    }
+
+    private fun parseDependency(entry: JsonElement): ExtensionDependency = when {
+        entry is JsonPrimitive && entry.isString -> ExtensionDependency(entry.asString)
+        entry is JsonObject -> {
+            val id = entry.get("id")
+            if (id !is JsonPrimitive || !id.isString) throw InvalidExtensionException("$MANIFEST_FILE: dependency objects need a string 'id'")
+            ExtensionDependency(id.asString, parseVersionRange(id.asString, entry.get("version")))
+        }
+        else -> throw InvalidExtensionException("$MANIFEST_FILE: dependencies must be ids or {\"id\", \"version\"} objects")
+    }
+
+    private fun parseVersionRange(id: String, version: JsonElement?): VersionRange? = when {
+        version == null -> null
+        version is JsonPrimitive && version.isString -> try {
+            VersionRange.parse(version.asString)
+        } catch (e: IllegalArgumentException) {
+            throw InvalidExtensionException("$MANIFEST_FILE: dependency '$id': ${e.message}", e)
+        }
+        else -> throw InvalidExtensionException("$MANIFEST_FILE: dependency 'version' must be a string")
     }
 
     /** Deterministic zip of [entries] (already sorted). */

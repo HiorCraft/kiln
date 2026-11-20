@@ -2,9 +2,6 @@ package dev.kiln.server.runtime.item
 
 import net.kyori.adventure.key.Key
 
-/** What content registrations need to know about an extension: who registered it and which files it has. */
-data class ContentExtension(val ownerName: String, val files: Set<String>)
-
 /**
  * Registered content of one kind ([V]) by key, with the ownership and asset checks every content kind shares:
  * the key's namespace is an extension registered by the same plugin, and the referenced asset exists in it.

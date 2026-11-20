@@ -1,12 +1,14 @@
 package dev.kiln.server.runtime.handshake
 
-import dev.kiln.protocol.ExtensionChunk
-import dev.kiln.protocol.ExtensionRequest
-import dev.kiln.protocol.ExtensionsReady
-import dev.kiln.protocol.Hello
 import dev.kiln.protocol.PROTOCOL_VERSION
 import dev.kiln.protocol.ProtocolLimits
 import dev.kiln.protocol.codec.MessageCodec
+import dev.kiln.protocol.message.ClientboundMessage
+import dev.kiln.protocol.message.ExtensionChunk
+import dev.kiln.protocol.message.ExtensionManifest
+import dev.kiln.protocol.message.ExtensionRequest
+import dev.kiln.protocol.message.ExtensionsReady
+import dev.kiln.protocol.message.Hello
 import dev.kiln.server.runtime.extension.ExtensionPackager
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertSame
@@ -79,9 +81,9 @@ class SendThrottleTest {
         ))
         val link = object : HandshakeLink {
             var chunks = 0
-            override fun send(message: dev.kiln.protocol.ClientboundMessage) {
+            override fun send(message: dev.kiln.protocol.message.ClientboundMessage) {
                 when (message) {
-                    is dev.kiln.protocol.ExtensionManifest ->
+                    is dev.kiln.protocol.message.ExtensionManifest ->
                         inbox.offerBytes(MessageCodec.encodeServerbound(ExtensionRequest(listOf("big"))))
                     is ExtensionChunk -> {
                         sendTimes += now
