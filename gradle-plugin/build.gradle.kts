@@ -64,5 +64,13 @@ tasks.test {
 publishing {
     repositories {
         mavenLocal()
+        // same repository as the Kiln modules (build-logic kiln.publish)
+        maven("https://reposilite.slne.dev/releases") {
+            name = "slneReleases"
+            credentials {
+                username = providers.environmentVariable("SLNE_RELEASES_REPO_USERNAME").orNull
+                password = providers.environmentVariable("SLNE_RELEASES_REPO_PASSWORD").orNull
+            }
+        }
     }
 }
