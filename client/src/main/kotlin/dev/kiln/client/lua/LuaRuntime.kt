@@ -31,6 +31,18 @@ object LuaExecution {
 
     val active: Boolean get() = principal != null
 
+    /** Charges Java-side work to the running call (no-op outside a call). */
+    @JvmStatic
+    fun chargeInstructions(count: Long) {
+        activeHook?.chargeInstructions(count)
+    }
+
+    /** Charges a string allocation to the running call (no-op outside a call). */
+    @JvmStatic
+    fun chargeBytes(bytes: Long) {
+        activeHook?.chargeBytes(bytes)
+    }
+
     /**
      * Holders of the exported functions running now ([ExportedFunction.holder], innermost last): an importer that
      * calls (or hands on) a function it imported adds its own permissions to the check of everything that runs inside.
@@ -195,6 +207,9 @@ class LuaRuntime(
             throw LuaScriptException(cleanMessage(e))
         } catch (e: StackOverflowError) {
             throw LuaScriptException("$name: stack overflow")
+        } catch (e: OutOfMemoryError) {
+            // last line of defence (the allocation budget should come first): the call's objects are unreachable now
+            throw LuaScriptException("$name: out of memory")
         } catch (e: LuaScriptException) {
             throw e
         } catch (e: RuntimeException) {

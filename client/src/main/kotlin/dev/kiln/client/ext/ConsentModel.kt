@@ -15,7 +15,7 @@ object PermissionTexts {
         ExtensionPermissions.TOASTS to "Benachrichtigungen anzeigen",
         ExtensionPermissions.SCREENS to "Eigene Menüs öffnen",
         ExtensionPermissions.INVENTORY to "Dein Inventar lesen",
-        ExtensionPermissions.RESOURCES to "Ressourcen: Modelle, Texturen, Sounds, Schriften",
+        ExtensionPermissions.RESOURCES to "Ressourcen: Modelle, Texturen, Sounds, Schriften, Shader",
     )
 
     /** Every known permission (requested -> green check, not requested -> red X). */

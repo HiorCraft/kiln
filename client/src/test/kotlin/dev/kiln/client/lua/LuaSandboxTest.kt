@@ -157,4 +157,48 @@ class LuaSandboxTest {
         eval(rt, "print('a', 1, {})")
         assertEquals(listOf("a\t1\ttable"), out)
     }
+
+    @Test
+    fun `many large strings in one call hit the allocation budget`() {
+        val rt = runtime(LuaLimits(maxAllocationPerCall = 32L shl 20))
+        val e = assertThrows(LuaScriptException::class.java) {
+            eval(rt, "local t = {} for i = 1, 100 do t[i] = ('x'):rep(1048576) end")
+        }
+        assertTrue(e.message!!.contains("memory"), e.message)
+        val copies = assertThrows(LuaScriptException::class.java) {
+            eval(rt, "local s = ('x'):rep(1048576) local t = {} for i = 1, 100 do t[i] = s:upper() end")
+        }
+        assertTrue(copies.message!!.contains("memory"), copies.message)
+        // small work stays fine
+        assertEquals(10, eval(rt, "local t = {} for i = 1, 10 do t[i] = ('x'):rep(1000) .. i end return #t").toint())
+    }
+
+    @Test
+    fun `format refuses a result that would be too long before building it`() {
+        val rt = runtime()
+        val e = assertThrows(LuaScriptException::class.java) {
+            eval(rt, "local s = ('x'):rep(1048576) local t = {} for i = 1, 4096 do t[i] = s end return string.format(('%s'):rep(4096), table.unpack(t))")
+        }
+        assertTrue(e.message!!.contains("too long"), e.message)
+    }
+
+    @Test
+    fun `pathological patterns hit the instruction budget instead of hanging`() {
+        val rt = runtime()
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(10)) {
+            val e = assertThrows(LuaScriptException::class.java) {
+                eval(rt, "return ('a'):rep(40):find(('a*'):rep(20) .. 'b')")
+            }
+            assertTrue(e.message!!.contains("instruction budget"), e.message)
+        }
+    }
+
+    @Test
+    fun `ordinary patterns still work`() {
+        val rt = runtime()
+        assertEquals("b2", eval(rt, "return ('a1 b2 c3'):match('(b%d)')").tojstring())
+        assertEquals(3, eval(rt, "local n = 0 for w in ('x y z'):gmatch('%a') do n = n + 1 end return n").toint())
+        assertEquals("X-X", eval(rt, "return (('a-a'):gsub('a', 'X'))").tojstring())
+        assertEquals(4, eval(rt, "return ('hello'):find('lo')").toint())
+    }
 }

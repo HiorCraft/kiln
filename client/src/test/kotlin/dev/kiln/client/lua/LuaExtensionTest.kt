@@ -151,6 +151,23 @@ class LuaExtensionTest {
     }
 
     @Test
+    fun `drawing work costs instructions so a HUD cannot freeze the game`() {
+        val host = FakeHost()
+        val ext = LuaExtension(pkg("x", setOf("hud"), "main.lua" to """
+            kiln.hud.layer("busy", { width = 64, height = 64 }, function(g, area)
+              for i = 1, 20000 do g:arc(64, 64, 128, 128, 0, 1, -1) end
+            end)
+        """.trimIndent()), host)
+        ext.load()
+        val r = Recorder()
+        ext.renderHud(ext.hudLayers.single(), r, 0, 0)
+        assertFalse(ext.alive)
+        assertTrue(host.failures.single().contains("instruction budget"), host.failures.toString())
+        // stopped after a few hundred arcs, not 20 000 x 257 fills
+        assertTrue(r.fills < 200_000, "fills=${r.fills}")
+    }
+
+    @Test
     fun `budget overrun at runtime unloads, at load time throws`() {
         val host = FakeHost()
         val ext = LuaExtension(pkg("x", setOf("channels"), "main.lua" to """

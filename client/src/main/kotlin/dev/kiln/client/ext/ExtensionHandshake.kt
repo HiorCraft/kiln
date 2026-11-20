@@ -129,6 +129,9 @@ class ExtensionHandshake(
         if (phase != Phase.WAIT_MANIFEST) return fail("unexpected extension manifest")
         val infos = manifest.extensions
         if (infos.map { it.id }.toSet().size != infos.size) return fail("duplicate extension ids in the manifest")
+        // checked before consent: the download buffers follow the announced sizes
+        val announced = infos.sumOf { it.size.toLong() }
+        if (announced > maxTotalUnpackedBytes) return fail("the server announces ${announced / 1024 / 1024} MiB of extensions (limit ${maxTotalUnpackedBytes / 1024 / 1024} MiB)")
         // before consent and download: an extension must not take over the namespace of the game, kiln or a mod
         for (info in infos) ExtensionNamespaces.problem(info.id, io::isModLoaded)?.let { return fail(it) }
         items = infos.map(::Item)

@@ -48,10 +48,10 @@ class ExtensionHandshakeTest {
         override fun screenCovered() = covered
     }
 
-    private fun zip(id: String, padding: Int = 0): ByteArray {
+    private fun zip(id: String, padding: Int = 0, level: Int = 0): ByteArray {
         val out = ByteArrayOutputStream()
         ZipOutputStream(out).use { z ->
-            z.setLevel(0)
+            z.setLevel(level)
             z.putNextEntry(ZipEntry("extension.json"))
             z.write("""{"id":"$id","version":"1","name":"$id","permissions":["hud"]}""".toByteArray())
             z.putNextEntry(ZipEntry("main.lua"))
@@ -226,7 +226,7 @@ class ExtensionHandshakeTest {
         val rows = PermissionTexts.rows(listOf("hud", "widgets"))
         assertEquals(listOf("widgets", "keybinds", "hud", "channels", "toasts", "screens", "inventory", "resources"), rows.map { it.permission })
         assertEquals(listOf(true, false, true, false, false, false, false, false), rows.map { it.requested })
-        assertEquals("Ressourcen: Modelle, Texturen, Sounds, Schriften", rows.last().label)
+        assertEquals("Ressourcen: Modelle, Texturen, Sounds, Schriften, Shader", rows.last().label)
         assertTrue(rows.all { it.label.isNotBlank() && it.label != it.permission })
         assertEquals(listOf("UI-Kit (ui_kit)", "icons"), PermissionTexts.dependencyLabels(listOf("ui_kit", "icons"), mapOf("ui_kit" to "UI-Kit")))
         assertEquals(0, PermissionTexts.dependencyHeight(0))
@@ -457,13 +457,26 @@ class ExtensionHandshakeTest {
 
     @Test
     fun `the total unpacked size of all packages is capped`() {
-        val io = FakeIo(trusted = true, cache = mutableMapOf("a" to a, "b" to b))
+        // compressed: the announced (packed) size passes the manifest check, the unpacked contents do not
+        val c = zip("packed", ProtocolLimits.MAX_EXTENSION_CHUNK_BYTES + 100, level = 9)
+        val io = FakeIo(trusted = true, cache = mutableMapOf("packed" to c))
         val h = ExtensionHandshake(io, maxTotalUnpackedBytes = ProtocolLimits.MAX_EXTENSION_CHUNK_BYTES.toLong())
         h.onWelcome(PROTOCOL_VERSION)
-        h.onManifest(manifest)
+        h.onManifest(ExtensionManifest(listOf(info("packed", c))))
         runToEnd(h)
         assertEquals(Phase.FAILED, h.phase)
         val ready = io.sent.last() as ExtensionsReady
         assertTrue(ready.error!!.contains("unpacked"), ready.error)
+    }
+
+    @Test
+    fun `a manifest announcing more than the total cap fails before consent`() {
+        val io = FakeIo()
+        val h = ExtensionHandshake(io)
+        h.onWelcome(PROTOCOL_VERSION)
+        val huge = (1..9).map { ExtensionInfo("big$it", "1", "big$it", ByteArray(32), ProtocolLimits.MAX_EXTENSION_PACKAGE_BYTES, listOf("hud")) }
+        h.onManifest(ExtensionManifest(huge))
+        assertEquals(Phase.FAILED, h.phase)
+        assertTrue(io.events.none { it.startsWith("consent") }, io.events.toString())
     }
 }

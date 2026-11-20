@@ -564,7 +564,7 @@ Lesen):
 - Paketgrenzen v6: Zip ≤ 32 MiB, entpackt ≤ 64 MiB, ≤ 4096 Dateien.
 
 **Recht `resources`:** Pflicht, sobald `assets/` existiert (der Server ergänzt es beim Packen automatisch, der Client
-verlangt es). Der Zustimmungs-Screen zeigt „Ressourcen: Modelle, Texturen, Sounds, Schriften“.
+verlangt es). Der Zustimmungs-Screen zeigt „Ressourcen: Modelle, Texturen, Sounds, Schriften, Shader“ (Post-Effekte laufen auf der GPU des Spielers).
 
 **Client:** Nachdem alle Extensions geladen sind (Configuration-Phase), hängt der Client die `assets/`-Bäume als
 In-Memory-Resourcepack `kiln:server` ein (oberstes, festes, erforderliches Pack; nur im Client-Resourcepack-Repository)

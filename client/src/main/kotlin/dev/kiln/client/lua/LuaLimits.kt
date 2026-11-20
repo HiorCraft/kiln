@@ -33,6 +33,11 @@ data class LuaLimits(
     val maxObjects: Int = 250_000,
     /** Instructions between two memory estimates (the walk is not free, so it only runs after real work). */
     val memoryCheckInterval: Long = 1_000_000,
+    /**
+     * Bytes of strings one call may create (`rep`, `format`, `gsub`, `upper`, `..`, `table.concat`, ...): the memory
+     * estimate only runs between calls, so this keeps a single call from filling the Java heap.
+     */
+    val maxAllocationPerCall: Long = 32L shl 20,
     /** Maximum number of values `table.unpack` may return. */
     val maxUnpack: Int = 4_096,
 )

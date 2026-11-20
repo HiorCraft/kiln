@@ -57,9 +57,13 @@ class SandboxHook(private val limits: LuaLimits) : DebugLib() {
     private var pcs = IntArray(64)
     private var depth = 0
 
+    /** Bytes of strings created in the current call ([chargeBytes]). */
+    private var allocated = 0L
+
     /** Prepares a new outermost call with [budget] instructions. */
     fun begin(budget: Long) {
         remaining = budget
+        allocated = 0
         if (depth != 0) {
             closures.fill(null)
             stacks.fill(null)
@@ -113,6 +117,19 @@ class SandboxHook(private val limits: LuaLimits) : DebugLib() {
     private companion object {
         /** LuaJ's `pcall` (the only library function that gets a frame). */
         const val PCALL_CLASS = "org.luaj.vm2.lib.BaseLib\$pcall"
+    }
+
+    /** Work done in Java on behalf of the script (pattern matching, drawing) costs instructions too. */
+    fun chargeInstructions(count: Long) {
+        executed += count
+        remaining -= count
+        if (remaining < 0) throw LuaLimitExceeded("instruction budget exceeded")
+    }
+
+    /** A string of [bytes] is about to be created; above [LuaLimits.maxAllocationPerCall] per call the call ends. */
+    fun chargeBytes(bytes: Long) {
+        allocated += bytes
+        if (allocated > limits.maxAllocationPerCall) throw LuaLimitExceeded("memory budget of one call exceeded (${limits.maxAllocationPerCall / 1024 / 1024} MiB of strings)")
     }
 
     /** Instructions consumed since [begin] with [budget]. */
@@ -178,6 +195,7 @@ class SandboxHook(private val limits: LuaLimits) : DebugLib() {
             }
         }
         if (total > limits.maxStringBytes) throw LuaError("string too long (limit ${limits.maxStringBytes} bytes)")
+        chargeBytes(total)
     }
 
     /** LuaJ appends this to error messages; the sandbox keeps messages short and free of host details. */

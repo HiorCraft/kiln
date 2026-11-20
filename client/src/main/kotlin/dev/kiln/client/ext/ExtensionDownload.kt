@@ -98,7 +98,8 @@ class ExtensionCache(private val dir: Path) {
  * chunk but the last exactly [ProtocolLimits.MAX_EXTENSION_CHUNK_BYTES], final size and SHA-256 as in the manifest.
  */
 class ChunkAssembler(val info: ExtensionInfo) {
-    private val out = ByteArrayOutputStream(info.size.coerceIn(0, ProtocolLimits.MAX_EXTENSION_PACKAGE_BYTES))
+    // grows with the data that really arrives (a manifest's announced size alone allocates nothing)
+    private val out = ByteArrayOutputStream(info.size.coerceIn(0, ProtocolLimits.MAX_EXTENSION_CHUNK_BYTES))
     private var next = 0
 
     val isComplete: Boolean get() = next == info.chunkCount

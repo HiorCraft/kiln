@@ -68,7 +68,8 @@ class LuaGraphics(private val extension: LuaExtension) {
             )
             LuaValue.NONE
         }
-        method("arc") { a ->
+        // up to 2r+1 columns, each a sqrt/atan2 step and a fill
+        method("arc", { a -> val r = a.optdouble(3, 0.0).coerceIn(0.0, MAX_ARC_RADIUS); (r * r / 8).toLong() }) { a ->
             val t = target()
             val radius = a.checkdouble(3).coerceAtMost(MAX_ARC_RADIUS)
             val color = LuaExtension.color(a.arg(7))
@@ -77,7 +78,7 @@ class LuaGraphics(private val extension: LuaExtension) {
             }
             LuaValue.NONE
         }
-        method("text") { a ->
+        method("text", { a -> textCost(a.arg(1)) * a.arg(4).let { o -> if (o.istable()) o.get("scale").optdouble(1.0).coerceIn(1.0, MAX_TEXT_SCALE).toLong() else 1L } }) { a ->
             val t = target()
             val text = string(a.arg(1))
             val opts = a.arg(4)
@@ -106,8 +107,8 @@ class LuaGraphics(private val extension: LuaExtension) {
                 LuaValue.valueOf(scaled)
             }
         }
-        method("textWidth") { a -> LuaValue.valueOf(target().textWidth(string(a.arg(1)))) }
-        method("wrap") { a ->
+        method("textWidth", { a -> textCost(a.arg(1)) }) { a -> LuaValue.valueOf(target().textWidth(string(a.arg(1)))) }
+        method("wrap", { a -> textCost(a.arg(1)) * 2 }) { a ->
             val lines = target().wrap(string(a.arg(1)), a.checkint(2).coerceIn(1, 8_192))
             val result = LuaTable()
             lines.take(MAX_LINES).forEachIndexed { i, line -> result.set(i + 1, line) }
@@ -140,7 +141,7 @@ class LuaGraphics(private val extension: LuaExtension) {
             }
             LuaValue.NONE
         }
-        method("item") { a ->
+        method("item", { ITEM_COST }) { a ->
             val t = target()
             val x = ox + floor(a.checkdouble(2)).toInt()
             val y = oy + floor(a.checkdouble(3)).toInt()
@@ -165,13 +166,13 @@ class LuaGraphics(private val extension: LuaExtension) {
             }
             LuaValue.NONE
         }
-        method("itemTooltip") { a ->
+        method("itemTooltip", { ITEM_COST }) { a ->
             val t = target()
             val ref = LuaItems.ref(a.arg(1))
             if (allowTooltip) t.itemTooltip(ref, ox + floor(a.checkdouble(2)).toInt(), oy + floor(a.checkdouble(3)).toInt(), lines(a.arg(4)))
             LuaValue.NONE
         }
-        method("tooltip") { a ->
+        method("tooltip", { a -> textCost(a.arg(1)) }) { a ->
             val t = target()
             if (allowTooltip) {
                 val v = a.arg(1)
@@ -285,15 +286,32 @@ class LuaGraphics(private val extension: LuaExtension) {
     }
 
     /** Registers `g:name(...)`: the implicit `self` argument is dropped. */
-    private fun method(name: String, body: (Varargs) -> Varargs) {
+    /**
+     * Registers `g:<name>`. Every call costs [DRAW_COST] instructions plus what [cost] says about its arguments: the
+     * work happens in Java (fills, glyphs, items), which the instruction hook would not see, so a few cheap-looking
+     * calls in a loop could otherwise take seconds per frame.
+     */
+    private fun method(name: String, cost: (Varargs) -> Long = { 0 }, body: (Varargs) -> Varargs) {
         val self = table
         table.set(name, object : VarArgFunction() {
-            override fun invoke(args: Varargs): Varargs = body(if (args.arg1() === self) args.subargs(2) else args)
+            override fun invoke(args: Varargs): Varargs {
+                val a = if (args.arg1() === self) args.subargs(2) else args
+                LuaExecution.chargeInstructions(DRAW_COST + cost(a))
+                return body(a)
+            }
         })
     }
 
+    private fun textCost(v: LuaValue): Long = if (v.isstring()) minOf(v.rawlen(), LuaExtension.MAX_TEXT).toLong() / 4 else 0
+
     companion object {
         const val MAX_ARC_RADIUS = 128.0
+
+        /** Instructions every `g:` call costs (about the Java work of a fill). */
+        const val DRAW_COST = 8L
+
+        /** Extra instructions of drawing an item (model render). */
+        const val ITEM_COST = 64L
         const val MAX_TEXT_SCALE = 8.0
         const val MAX_LINES = 64
         const val MAX_CLIP_DEPTH = 16

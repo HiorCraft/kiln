@@ -29,4 +29,10 @@ class ConsentTest {
         assertEquals("singleplayer", KilnClientImpl.serverKey(null, true))
         assertEquals("unknown", KilnClientImpl.serverKey("  ", false))
     }
+
+    @Test
+    fun `the resources permission names shaders`() {
+        val label = PermissionTexts.LABELS.getValue(dev.kiln.protocol.ExtensionPermissions.RESOURCES)
+        org.junit.jupiter.api.Assertions.assertTrue(label.contains("Shader"), label)
+    }
 }

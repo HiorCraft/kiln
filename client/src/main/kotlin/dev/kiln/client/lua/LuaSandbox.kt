@@ -8,7 +8,6 @@ import org.luaj.vm2.LuaValue
 import org.luaj.vm2.Varargs
 import org.luaj.vm2.compiler.LuaC
 import org.luaj.vm2.lib.BaseLib
-import org.luaj.vm2.lib.StringLib
 import org.luaj.vm2.lib.TableLib
 import org.luaj.vm2.lib.VarArgFunction
 import org.luaj.vm2.lib.jse.JseMathLib
@@ -37,8 +36,9 @@ import java.io.ByteArrayInputStream
  * - **Resource exhaustion**: instruction budget and call depth ([SandboxHook]), size checks of string producers
  *   (`..`, `rep`, `format`, `gsub`, `table.concat`), bounded `table.unpack`, memory estimate ([LuaMemory]).
  *
- * Not closed (documented limitation): LuaJ's pattern matcher runs in Java and is not counted by the instruction hook;
- * a pathological pattern on a long subject can still take long. Subjects are limited to [LuaLimits.maxStringBytes].
+ * - **Pattern matching**: LuaJ's matcher runs in Java; [dev.kiln.client.lua.luaj.KilnStringLib] is its copy that
+ *   charges every matching step to the instruction budget, so a backtracking pattern ends like an endless loop.
+ * - **Allocation inside one call**: every string producer charges its result to [LuaLimits.maxAllocationPerCall].
  */
 object LuaSandbox {
     /** First byte of a precompiled Lua chunk (`\x1bLua`). */
@@ -115,8 +115,12 @@ object LuaSandbox {
         val base = stringFunctions
         return base + mapOf(
             "rep" to BoundedRep(limits, base.getValue("rep")),
-            "format" to BoundedResult(limits, base.getValue("format")),
+            "format" to BoundedFormat(limits, base.getValue("format")),
             "gsub" to BoundedGsub(limits, base.getValue("gsub")),
+            // copies of their input: charged so a loop cannot pile up copies within one call
+            "upper" to ChargedCopy(base.getValue("upper")),
+            "lower" to ChargedCopy(base.getValue("lower")),
+            "reverse" to ChargedCopy(base.getValue("reverse")),
         )
     }
 
@@ -124,7 +128,8 @@ object LuaSandbox {
         // StringLib only fills LuaString.s_metatable if it is still null; protectStringMetatable overwrites it anyway
         val scratch = Globals()
         withPackageStub(scratch)
-        scratch.load(StringLib())
+        // LuaJ's string library with a pattern matcher that charges its steps to the instruction budget
+        scratch.load(dev.kiln.client.lua.luaj.KilnStringLib())
         val lib = scratch.get("string").checktable()
         val result = LinkedHashMap<String, LuaValue>()
         var key = LuaValue.NIL
@@ -161,6 +166,7 @@ object LuaSandbox {
             val n = args.checkint(2)
             if (n <= 0 || s.m_length == 0) return LuaValue.EMPTYSTRING
             checkLength(limits, s.m_length.toLong() * n)
+            LuaExecution.chargeBytes(s.m_length.toLong() * n)
             return delegate.invoke(args)
         }
     }
@@ -177,21 +183,34 @@ object LuaSandbox {
             }
             val result = delegate.invoke(args)
             checkLength(limits, result.arg1().checkstring().m_length.toLong())
+            LuaExecution.chargeBytes(result.arg1().checkstring().m_length.toLong())
             return result
         }
     }
 
-    /** Checks the size of a string result after the fact (for functions whose output is bounded by their input). */
-    private class BoundedResult(private val limits: LuaLimits, private val delegate: LuaValue) : VarArgFunction() {
+    /**
+     * `string.format`: the result is bounded **before** it is built: the format text, every argument (strings up to
+     * twice for `%q`) and the widths of the conversions (at most 99 per conversion).
+     */
+    private class BoundedFormat(private val limits: LuaLimits, private val delegate: LuaValue) : VarArgFunction() {
         override fun invoke(args: Varargs): Varargs {
-            for (i in 1..args.narg()) {
+            val format = args.checkstring(1)
+            var bound = format.m_length.toLong() * 50
+            for (i in 2..args.narg()) {
                 val a = args.arg(i)
-                if (a is LuaString) checkLength(limits, a.m_length.toLong())
+                bound += if (a is LuaString) a.m_length * 2L + 2 else 64L
             }
-            val result = delegate.invoke(args)
-            val first = result.arg1()
-            if (first is LuaString) checkLength(limits, first.m_length.toLong())
-            return result
+            checkLength(limits, bound)
+            LuaExecution.chargeBytes(bound)
+            return delegate.invoke(args)
+        }
+    }
+
+    /** A function returning a copy of its string argument (`upper`, `lower`, `reverse`). */
+    private class ChargedCopy(private val delegate: LuaValue) : VarArgFunction() {
+        override fun invoke(args: Varargs): Varargs {
+            LuaExecution.chargeBytes(args.checkstring(1).m_length.toLong())
+            return delegate.invoke(args)
         }
     }
 
@@ -209,6 +228,7 @@ object LuaSandbox {
                 total += sep.m_length
                 checkLength(limits, total)
             }
+            LuaExecution.chargeBytes(total)
             return list.concat(sep, i, j)
         }
     }
