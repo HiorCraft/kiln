@@ -5,6 +5,7 @@ import dev.kiln.server.api.extension.ExtensionSource
 import dev.kiln.server.api.item.CustomItems
 import dev.kiln.server.api.creative.CreativeTabs
 import dev.kiln.server.api.furniture.FurnitureRegistry
+import dev.kiln.server.api.entity.CustomEntities
 import dev.kiln.server.api.enchantment.CustomEnchantments
 import dev.kiln.server.api.keybind.Keybind
 import dev.kiln.server.api.keybind.KeybindBuilder
@@ -135,6 +136,9 @@ public interface Kiln {
 
     /** Furniture: models with (solid) hit boxes, placed in the world and stored with their chunk. */
     public val furniture: FurnitureRegistry
+
+    /** Custom entities: bone models, animations, own hit box and behaviour. */
+    public val entities: CustomEntities
 
     public companion object {
         /** The registered implementation; throws if the Kiln plugin is not loaded. */

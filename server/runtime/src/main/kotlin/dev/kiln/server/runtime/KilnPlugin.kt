@@ -96,6 +96,7 @@ class KilnPlugin : JavaPlugin(), Listener {
         server.pluginManager.registerEvents(CustomItemListener(bridge.items), this)
         server.pluginManager.registerEvents(bridge.enchantments, this)
         server.pluginManager.registerEvents(bridge.furniture, this)
+        server.pluginManager.registerEvents(bridge.entities, this)
         // fallback for clients whose channel registration did not produce a PlayerRegisterChannelEvent
         server.scheduler.runTaskTimer(this, Runnable { bridge.flushAll() }, 20L, 20L)
         server.scheduler.runTaskTimer(this, Runnable { handshakes.sweep() }, 20L * 60, 20L * 60)
@@ -118,6 +119,7 @@ class KilnPlugin : JavaPlugin(), Listener {
     override fun onDisable() {
         if (::handshakes.isInitialized) handshakes.shutdown()
         bridge.furniture.despawnAll()
+        bridge.entities.storeAll()
         bridge.shutdown()
         server.messenger.unregisterIncomingPluginChannel(this)
         server.messenger.unregisterOutgoingPluginChannel(this)

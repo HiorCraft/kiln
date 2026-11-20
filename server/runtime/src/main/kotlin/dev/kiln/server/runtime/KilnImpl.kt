@@ -44,6 +44,7 @@ import dev.kiln.protocol.SetPostEffect
 import dev.kiln.server.runtime.enchantment.EnchantmentHookRegistry
 import dev.kiln.server.runtime.creative.CreativeTabRegistry
 import dev.kiln.server.runtime.furniture.FurnitureManager
+import dev.kiln.server.runtime.entity.CustomEntityManager
 import dev.kiln.server.runtime.keybind.KeybindImpl
 import dev.kiln.server.runtime.keybind.KeybindRegistry
 import dev.kiln.server.runtime.screen.EventValidator
@@ -83,8 +84,13 @@ class KilnImpl(private val plugin: KilnPlugin) : Kiln, ExtensionMessenger {
         extensionRegistry.onUnregistered = { id ->
             items.removeNamespace(id)
             furniture.removeNamespace(id)
+            entities.removeNamespace(id)
             creativeTabs.removeNamespace(id)
         }
+    }
+
+    override val entities: CustomEntityManager = CustomEntityManager(plugin.logger, extensionRegistry::impl) { player, message ->
+        session(player)?.let { send(it, message) }
     }
 
     override val furniture: FurnitureManager = FurnitureManager(plugin, plugin.logger, extensionRegistry::impl) { player, message ->
@@ -452,6 +458,7 @@ class KilnImpl(private val plugin: KilnPlugin) : Kiln, ExtensionMessenger {
         enchantments.removeAll(disabled)
         creativeTabs.removeAll(disabled)
         furniture.removeAll(disabled)
+        entities.removeAll(disabled)
         extensionRegistry.removeAll(disabled)
         val loader = disabled.javaClass.classLoader
         sessions.values.mapNotNull { it.screen }
