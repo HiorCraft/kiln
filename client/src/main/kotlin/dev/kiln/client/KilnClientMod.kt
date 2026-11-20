@@ -1,5 +1,6 @@
 package dev.kiln.client
 
+import dev.kiln.client.creative.KilnCreativeTabs
 import dev.kiln.client.ext.ExtensionCache
 import dev.kiln.client.ext.TrustStore
 import dev.kiln.client.keybind.KeybindStore
@@ -48,6 +49,8 @@ object KilnClientMod : ClientModInitializer {
         trust = TrustStore(loader.configDir.resolve("kiln-trust.json")).also { it.load() }
         cache = ExtensionCache(loader.gameDir.resolve("kiln").resolve("cache"))
         LuaSandbox.protectStringMetatable()
+        // placeholder creative tabs (the registry is frozen later); their content comes from the server
+        KilnCreativeTabs.register()
         client = KilnClientImpl(cache, trust)
 
         // configuration phase: handshake and extension delivery (handlers run on the network thread)

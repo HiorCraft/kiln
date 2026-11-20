@@ -6,6 +6,7 @@ import dev.kiln.client.ext.ExtensionHandshake
 import dev.kiln.client.ext.ExtensionIcons
 import dev.kiln.client.ext.LoadingScreen
 import dev.kiln.client.resource.KilnPackSource
+import dev.kiln.client.creative.KilnCreativeTabs
 import dev.kiln.client.resource.KilnPostEffect
 import dev.kiln.client.resource.KilnResourceReload
 import net.minecraft.client.renderer.LevelTargetBundle
@@ -320,6 +321,7 @@ class KilnClientImpl(
         ServerKeybinds.clear()
         extensions.unloadAll()
         KilnPostEffect.clear()
+        KilnCreativeTabs.clear()
         // the extensions' resource pack goes with them
         if (KilnPackSource.clear()) Minecraft.getInstance().reloadResourcePacks()
         icons.clear()
@@ -372,7 +374,8 @@ class KilnClientImpl(
                 val shaders = minecraft.shaderManager
                 shaders.isPostEffectValid(id, LevelTargetBundle.MAIN_TARGETS) && shaders.getPostChain(id, LevelTargetBundle.MAIN_TARGETS) != null
             }
-            is CreativeTabs, is EntityTraits, is EntityTraitsRemove -> logger.debug("Not handled yet: {}", message)
+            is CreativeTabs -> KilnCreativeTabs.apply(message.reset, message.tabs)
+            is EntityTraits, is EntityTraitsRemove -> logger.debug("Not handled yet: {}", message)
             is Welcome, is ExtensionManifest, is ExtensionChunk -> logger.debug("Ignoring {} in the play phase", message)
         }
     }
