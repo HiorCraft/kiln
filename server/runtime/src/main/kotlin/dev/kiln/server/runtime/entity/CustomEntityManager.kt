@@ -41,6 +41,7 @@ import org.bukkit.event.entity.CreatureSpawnEvent
 import org.bukkit.event.entity.EntityDamageByEntityEvent
 import org.bukkit.event.entity.EntityDamageEvent
 import org.bukkit.event.entity.EntityDeathEvent
+import org.bukkit.event.entity.EntityRemoveEvent
 import org.bukkit.event.world.ChunkLoadEvent
 import org.bukkit.event.world.ChunkUnloadEvent
 import org.bukkit.event.world.WorldSaveEvent
@@ -77,6 +78,7 @@ class CustomEntityManager(
         val geo = "assets/${model.namespace()}/kiln/entity/${model.value()}.geo.json"
         require(model.namespace() == key.namespace() && geo in extension.files) { "Entity model ${model.asString()} not found (expected $geo)" }
         require(definition.width in 0.05..16.0 && definition.height in 0.05..16.0) { "entity size must be 0.05..16" }
+        definition.behavior.states.keys.forEach { EntityNames.state(it) }
         check(key !in types) { "Custom entity ${key.asString()} is already registered" }
         val type = CustomEntityTypeImpl(this, plugin, key, model, definition)
         types[key] = type
@@ -149,12 +151,14 @@ class CustomEntityManager(
             AnimationPlayback.LOOP -> AnimationMode.LOOP
             AnimationPlayback.HOLD -> AnimationMode.HOLD
         }
-        if (playback == AnimationPlayback.ONCE) entity.persistentAnimations.remove(name) else entity.persistentAnimations[name] = PlayAnimation(entity.mob.id, name, mode, speed)
-        val message = PlayAnimation(entity.mob.id, name, mode, speed.coerceIn(0f, 8f))
+        // checked before storing: a stored bad message would fail for every later tracker
+        val message = PlayAnimation(entity.mob.id, EntityNames.animation(name), mode, EntityNames.speed(speed))
+        if (playback == AnimationPlayback.ONCE) entity.persistentAnimations.remove(name) else entity.persistentAnimations[name] = message
         entity.bukkit.trackedBy.forEach { send(it, message) }
     }
 
     internal fun stop(entity: LiveEntity, name: String?) {
+        name?.let { EntityNames.animation(it) }
         if (name == null) entity.persistentAnimations.clear() else entity.persistentAnimations.remove(name)
         val message = StopAnimation(entity.mob.id, name)
         entity.bukkit.trackedBy.forEach { send(it, message) }
@@ -186,26 +190,38 @@ class CustomEntityManager(
         return StoredEntity(entity.type.key.asString(), l.x, l.y, l.z, l.yaw, entity.bukkit.health, entity.stateName, entity.mob.uuid)
     }
 
-    /** Writes [entity] into the chunk it stands in; [remove] also takes it out of the world. */
+    /**
+     * Writes [entity] into the chunk it stands in (and takes its older entry out of the chunk it was written to
+     * before); [remove] also takes it out of the world.
+     */
     private fun store(entity: LiveEntity, remove: Boolean) {
         val chunk = chunkOf(entity.bukkit.location)
+        val here = StoredIn(chunk.world.uid, chunk.chunkKey)
+        if (entity.storedIn != here) forgetStored(entity)
         write(chunk, read(chunk).filterNot { it.id == entity.mob.uuid } + snapshot(entity))
+        entity.storedIn = here
         if (remove) {
             live.remove(entity.mob.uuid)
             entity.bukkit.remove()
         }
     }
 
+    /** Takes the saved entry of [entity] out of its chunk (death, removal, or a newer entry elsewhere). */
+    private fun forgetStored(entity: LiveEntity) {
+        val at = entity.storedIn ?: return
+        entity.storedIn = null
+        val world = Bukkit.getWorld(at.world) ?: return
+        val chunk = world.getChunkAt(at.chunkKey)
+        write(chunk, read(chunk).filterNot { it.id == entity.mob.uuid })
+    }
+
     private fun restore(chunk: Chunk, filter: (StoredEntity) -> Boolean = { true }) {
         val stored = read(chunk)
         if (stored.isEmpty()) return
-        val kept = ArrayList<StoredEntity>()
-        for (entry in stored) {
-            val type = types[Key.key(entry.type)]
-            if (type == null || !filter(entry) || entry.id in live) {
-                kept += entry
-                continue
-            }
+        val plan = CustomEntityStore.plan(stored, isLive = { it in live }, canSpawn = { types[Key.key(it.type)] != null && filter(it) })
+        val kept = ArrayList(plan.keep)
+        for (entry in plan.spawn) {
+            val type = types.getValue(Key.key(entry.type))
             try {
                 spawn(type, Location(chunk.world, entry.x, entry.y, entry.z, entry.yaw, 0f), entry)
             } catch (e: Exception) {
@@ -213,7 +229,7 @@ class CustomEntityManager(
                 kept += entry
             }
         }
-        // living entities are not stored; unknown types stay
+        // living entities are not stored (stale copies of entities living elsewhere are dropped); unknown types stay
         write(chunk, kept)
     }
 
@@ -273,9 +289,23 @@ class CustomEntityManager(
         entity.hook("onDamage") { handler(entity.context, source, event.finalDamage) }
     }
 
+    /** Removal without death (peaceful despawn, other plugins, entity unload): never resurrect a discarded entity. */
+    @EventHandler(priority = EventPriority.MONITOR)
+    fun onRemove(event: EntityRemoveEvent) {
+        val entity = live[event.entity.uniqueId] ?: return
+        if (event.cause == EntityRemoveEvent.Cause.UNLOAD) {
+            val l = entity.bukkit.location
+            if (l.world.isChunkLoaded(l.blockX shr 4, l.blockZ shr 4)) store(entity, remove = false)
+        } else {
+            forgetStored(entity)
+        }
+        live.remove(entity.mob.uuid)
+    }
+
     @EventHandler
     fun onDeath(event: EntityDeathEvent) {
         val entity = live.remove(event.entity.uniqueId) ?: return
+        forgetStored(entity)
         event.drops.clear() // no zombie loot; onDeath decides
         entity.type.definition.sounds.death?.let { entity.sound(it) }
         entity.type.definition.onDeath?.let { handler -> entity.hook("onDeath") { handler(entity.context) } }
@@ -304,6 +334,8 @@ class CustomEntityTypeImpl(
     override fun unregister() = manager.unregister(this)
 }
 
+data class StoredIn(val world: UUID, val chunkKey: Long)
+
 /** One living custom entity and its behaviour state. */
 class LiveEntity(
     private val manager: CustomEntityManager,
@@ -313,6 +345,9 @@ class LiveEntity(
 ) : CustomEntity {
     var stateName: String = "default"
     var stepTicks = 0
+
+    /** Chunk the entity's entry was last written to (autosave), `null` = none. */
+    var storedIn: StoredIn? = null
     val cooldowns = Cooldowns()
     val persistentAnimations = LinkedHashMap<String, PlayAnimation>()
     override val memory: MutableMap<String, Any> = HashMap()
@@ -324,6 +359,7 @@ class LiveEntity(
         get() = stateName
         set(value) {
             if (value == stateName) return
+            EntityNames.state(value)
             val states = type.definition.behavior.states
             states[stateName]?.onExit?.let { h -> hook("state $stateName exit") { h(context) } }
             stateName = value

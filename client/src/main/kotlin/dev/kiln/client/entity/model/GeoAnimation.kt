@@ -13,7 +13,7 @@ data class Keyframe(val time: Double, val value: Vec3d, val lerp: Lerp)
 /** One channel (rotation, position or scale) of a bone: keyframes sorted by time. */
 class Channel(val keyframes: List<Keyframe>) {
     fun sample(time: Double): Vec3d {
-        if (keyframes.size == 1 || time <= keyframes.first().time) return keyframes.first().value
+        if (keyframes.size == 1 || time.isNaN() || time <= keyframes.first().time) return keyframes.first().value
         if (time >= keyframes.last().time) return keyframes.last().value
         val i = keyframes.indexOfLast { it.time <= time }
         val a = keyframes[i]
@@ -70,7 +70,7 @@ class GeoAnimations(val animations: Map<String, GeoAnimation>) {
                     bone to BoneAnimation(channel(c.get("rotation")), channel(c.get("position")), channel(c.get("scale")))
                 }
                 val lastKey = bones.values.flatMap { listOfNotNull(it.rotation, it.position, it.scale) }.maxOfOrNull { it.keyframes.last().time } ?: 0.0
-                val length = o.get("animation_length")?.let { GeoModel.number(it) } ?: lastKey
+                val length = o.get("animation_length")?.let { GeoModel.number(it) }?.takeIf { it.isFinite() && it >= 0 } ?: lastKey
                 result[fullName.substringAfterLast('.')] = GeoAnimation(loop, length, bones)
             }
             return GeoAnimations(result)
@@ -84,7 +84,7 @@ class GeoAnimations(val animations: Map<String, GeoAnimation>) {
                 return Channel(listOf(Keyframe(0.0, Vec3d(v, v, v), Lerp.LINEAR)))
             }
             val frames = element.asJsonObject.entrySet().mapNotNull { (time, value) ->
-                val t = time.toDoubleOrNull() ?: return@mapNotNull null
+                val t = time.toDoubleOrNull()?.takeIf { it.isFinite() } ?: return@mapNotNull null
                 when {
                     value.isJsonArray -> Keyframe(t, GeoModel.vec(value, Vec3d.ZERO), Lerp.LINEAR)
                     value.isJsonObject -> {

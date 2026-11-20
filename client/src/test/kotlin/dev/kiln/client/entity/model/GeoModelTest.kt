@@ -96,4 +96,14 @@ class GeoModelTest {
         assertEquals(-6.0, armRest.minOf { it.x }, 1e-6)
         assertNotNull(armRest.first().u)
     }
+
+    @Test
+    fun nonFiniteKeyframeTimesAreIgnored() {
+        val json = """{"animations":{"animation.t.idle":{"loop":true,"bones":{"arm":{"rotation":{"0.0":[0,0,0],"NaN":[5,0,0],"Infinity":[6,0,0],"1.0":[10,0,0]}}}}}}"""
+        val idle = GeoAnimations.parse(json).animations.getValue("idle")
+        assertTrue(idle.length.isFinite())
+        val rot = idle.bones.getValue("arm").rotation!!
+        assertEquals(2, rot.keyframes.size)
+        assertEquals(0.0, rot.sample(Double.NaN).x, 1e-6)
+    }
 }

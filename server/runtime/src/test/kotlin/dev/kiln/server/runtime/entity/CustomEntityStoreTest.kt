@@ -1,6 +1,7 @@
 package dev.kiln.server.runtime.entity
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import java.util.UUID
 
@@ -20,5 +21,26 @@ class CustomEntityStoreTest {
         val decoded = CustomEntityStore.decode(text)
         assertEquals(1, decoded.entries.size)
         assertEquals(2, decoded.invalid)
+    }
+
+    @Test
+    fun entriesOfLivingEntitiesAreDroppedNotKept() {
+        val alive = StoredEntity("a:b", 1.0, 2.0, 3.0, 0f, 5.0, "default", UUID(1, 1))
+        val fresh = StoredEntity("a:b", 1.0, 2.0, 3.0, 0f, 5.0, "default", UUID(2, 2))
+        val unknown = StoredEntity("x:y", 1.0, 2.0, 3.0, 0f, 5.0, "default", UUID(3, 3))
+        val plan = CustomEntityStore.plan(listOf(alive, fresh, unknown), isLive = { it == alive.id }, canSpawn = { it.type == "a:b" })
+        assertEquals(listOf(fresh), plan.spawn)
+        assertEquals(listOf(unknown), plan.keep)
+    }
+
+    @Test
+    fun stateAndAnimationNamesAreChecked() {
+        assertEquals("enraged", EntityNames.state("enraged"))
+        assertThrows(IllegalArgumentException::class.java) { EntityNames.state("wütend") }
+        assertThrows(IllegalArgumentException::class.java) { EntityNames.state("phase 2") }
+        assertEquals("smash", EntityNames.animation("smash"))
+        assertThrows(IllegalArgumentException::class.java) { EntityNames.animation("Smash") }
+        assertEquals(8f, EntityNames.speed(10f))
+        assertEquals(0f, EntityNames.speed(Float.NaN))
     }
 }

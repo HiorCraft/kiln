@@ -31,6 +31,12 @@ class KilnMob(level: Level) : Zombie(net.minecraft.world.entity.EntityTypes.ZOMB
 
     override fun canPickUpLoot(): Boolean = false
 
+    // a portal would recreate it through the zombie type as a plain zombie
+    override fun canUsePortal(ignorePassenger: Boolean): Boolean = false
+
+    // no peaceful or distance despawn (that discards it); Kiln stores and removes it with its chunk
+    override fun checkDespawn() {}
+
     override fun convertsInWater(): Boolean = false
 
     override fun isBaby(): Boolean = false

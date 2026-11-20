@@ -47,7 +47,12 @@ public interface CustomEntity {
     /** The Bukkit mob (position, health, …); valid while the entity lives. */
     public val entity: Mob
 
-    /** Current behaviour state (see [BehaviorBuilder.state]); `"default"` initially. */
+    /**
+     * Current behaviour state (see [BehaviorBuilder.state]); `"default"` initially. Saved with the entity; after a
+     * restore the state is set again without calling its `onEnter`.
+     *
+     * @throws IllegalArgumentException name not matching `[A-Za-z0-9_.-]{1,64}`.
+     */
     public var state: String
 
     public val target: LivingEntity?
@@ -55,7 +60,11 @@ public interface CustomEntity {
     /** Free storage for the behaviour (not persisted). */
     public val memory: MutableMap<String, Any>
 
-    /** Plays [name] from the model's animation file for every player that sees the entity. */
+    /**
+     * Plays [name] from the model's animation file for every player that sees the entity ([speed] clamped to 0..8).
+     *
+     * @throws IllegalArgumentException name not matching `[a-z0-9_.]{1,64}`.
+     */
     public fun playAnimation(name: String, playback: AnimationPlayback = AnimationPlayback.ONCE, speed: Float = 1f)
 
     /** Stops [name], or every server animation (`null`). */
@@ -139,7 +148,7 @@ public class BehaviorBuilder {
         targeting = Targeting(range, filter)
     }
 
-    /** A behaviour state; goals can be limited to states ([GoalBuilder.inStates]). */
+    /** A behaviour state ([name]: `[A-Za-z0-9_.-]{1,64}`, checked at registration); goals can be limited to states ([GoalBuilder.inStates]). */
     public fun state(name: String, block: StateBuilder.() -> Unit) {
         states[name] = StateBuilder().apply(block)
     }

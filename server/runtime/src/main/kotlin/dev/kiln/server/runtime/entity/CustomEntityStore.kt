@@ -11,7 +11,23 @@ data class StoredEntity(
 object CustomEntityStore {
     data class Decoded(val entries: List<StoredEntity>, val invalid: Int)
 
-    private val STATE = Regex("[A-Za-z0-9_.-]{1,64}")
+    /** What a chunk load does with its entries: [spawn] them, [keep] the rest stored. */
+    data class Plan(val spawn: List<StoredEntity>, val keep: List<StoredEntity>)
+
+    /**
+     * Entries of entities that already live elsewhere are stale copies (an older save) and are dropped; entries of
+     * types that cannot spawn (not registered) are kept.
+     */
+    fun plan(entries: List<StoredEntity>, isLive: (java.util.UUID) -> Boolean, canSpawn: (StoredEntity) -> Boolean): Plan {
+        val spawn = ArrayList<StoredEntity>()
+        val keep = ArrayList<StoredEntity>()
+        for (entry in entries) when {
+            isLive(entry.id) -> {}
+            canSpawn(entry) -> spawn += entry
+            else -> keep += entry
+        }
+        return Plan(spawn, keep)
+    }
 
     fun encode(list: List<StoredEntity>): String =
         list.joinToString("\n") { "${it.type};${it.x};${it.y};${it.z};${it.yaw};${it.health};${it.state};${it.id}" }
@@ -22,7 +38,7 @@ object CustomEntityStore {
         for (line in text.lineSequence()) {
             if (line.isBlank()) continue
             val p = line.split(';')
-            val entry = if (p.size != 8 || ':' !in p[0] || !STATE.matches(p[6])) null else try {
+            val entry = if (p.size != 8 || ':' !in p[0] || !EntityNames.isState(p[6])) null else try {
                 StoredEntity(p[0], p[1].toDouble(), p[2].toDouble(), p[3].toDouble(), p[4].toFloat(), p[5].toDouble(), p[6], UUID.fromString(p[7]))
             } catch (e: IllegalArgumentException) {
                 null
@@ -31,4 +47,24 @@ object CustomEntityStore {
         }
         return Decoded(result, invalid)
     }
+}
+
+/** Names that are stored or sent: behaviour states (chunk data) and animations (protocol). */
+object EntityNames {
+    private val STATE = Regex("[A-Za-z0-9_.-]{1,64}")
+    private val ANIMATION = Regex("[a-z0-9_.]{1,64}")
+
+    fun isState(name: String): Boolean = STATE.matches(name)
+
+    fun state(name: String): String {
+        require(isState(name)) { "State name '$name' must match [A-Za-z0-9_.-]{1,64}" }
+        return name
+    }
+
+    fun animation(name: String): String {
+        require(ANIMATION.matches(name)) { "Animation name '$name' must match [a-z0-9_.]{1,64}" }
+        return name
+    }
+
+    fun speed(speed: Float): Float = if (speed.isNaN()) 0f else speed.coerceIn(0f, 8f)
 }
