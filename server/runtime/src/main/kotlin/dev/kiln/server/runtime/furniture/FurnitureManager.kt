@@ -65,8 +65,8 @@ class FurnitureManager(
     /** Seat entity -> index in the type's seats (occupancy). */
     private val seatIndex = HashMap<UUID, Int>()
 
-    /** Last clicked point per player (interact-at comes right before the plain interact). */
-    private val lastClick = HashMap<UUID, Pair<Long, Location>>()
+    /** Tick of each player's last handled furniture interaction (one action per click). */
+    private val lastInteract = HashMap<UUID, Long>()
 
     // ---- registration -------------------------------------------------------------------------------------
 
@@ -134,7 +134,8 @@ class FurnitureManager(
     private fun spawn(world: World, type: FurnitureTypeImpl, stored: StoredFurniture): LiveFurniture {
         val origin = Vec(stored.x, stored.y, stored.z)
         val definition = type.definition
-        val display = world.spawn(Location(world, stored.x, stored.y + definition.modelHeight, stored.z, stored.yaw, 0f), ItemDisplay::class.java) {
+        // item displays draw the item model turned by 180° around Y: + 180 keeps the model's north at the back
+        val display = world.spawn(Location(world, stored.x, stored.y + definition.modelHeight, stored.z, stored.yaw + 180f, 0f), ItemDisplay::class.java) {
             it.isPersistent = false
             it.setItemStack(ItemType.PAPER.createItemStack().apply { setData(DataComponentTypes.ITEM_MODEL, type.model) })
         }
@@ -272,23 +273,22 @@ class FurnitureManager(
     }
 
     /**
-     * Right click on a part. The client sends "interact at" (with the clicked point) and then a plain "interact";
-     * both arrive as [PlayerInteractEntityEvent]: the first only remembers the point, the second acts once.
+     * Right click on a part. Depending on the entity the client sends "interact at" (with the clicked point), a
+     * plain "interact", or both; all arrive as [PlayerInteractEntityEvent]. The first one per tick acts.
      */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     fun onInteract(event: PlayerInteractEntityEvent) {
         if (event.hand != EquipmentSlot.HAND) return
         val furniture = byEntity[event.rightClicked.uniqueId] ?: return
         event.isCancelled = true
-        if (event is PlayerInteractAtEntityEvent) {
-            val point = event.rightClicked.location.clone().add(event.clickedPosition)
-            lastClick[event.player.uniqueId] = event.player.world.gameTime to point
-            return
-        }
-        val click = lastClick.remove(event.player.uniqueId)?.takeIf { it.first == event.player.world.gameTime }?.second
+        val player = event.player
+        val tick = player.world.gameTime
+        if (lastInteract[player.uniqueId] == tick) return
+        lastInteract[player.uniqueId] = tick
+        val click = (event as? PlayerInteractAtEntityEvent)?.let { event.rightClicked.location.clone().add(it.clickedPosition) }
         val handler = furniture.type.definition.onInteract
         hook(furniture, "onInteract") {
-            if (handler != null) handler(event.player, furniture) else furniture.sit(event.player, click ?: event.rightClicked.location)
+            if (handler != null) handler(player, furniture) else furniture.sit(player, click ?: event.rightClicked.location)
         }
     }
 
