@@ -59,6 +59,9 @@ class ExtensionRegistry(
 
     fun get(id: String): Extension? = byId[id]
 
+    /** The registered extension [id] with its package (content registrations check ownership and assets). */
+    fun impl(id: String): ExtensionImpl? = byId[id]
+
     fun register(plugin: Plugin, id: String, source: ExtensionSource): ExtensionImpl {
         check(id !in byId) { "Extension '$id' is already registered (by ${byId[id]?.plugin?.name})" }
         // checked here instead of when the manifest is sent: otherwise every join would fail with an internal error

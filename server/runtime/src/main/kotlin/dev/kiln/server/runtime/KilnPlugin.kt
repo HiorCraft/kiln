@@ -4,6 +4,7 @@ import dev.kiln.server.api.Kiln
 import dev.kiln.protocol.CHANNEL
 import dev.kiln.protocol.PROTOCOL_VERSION
 import dev.kiln.server.runtime.handshake.HandshakeManager
+import dev.kiln.server.runtime.item.CustomItemListener
 import dev.kiln.server.runtime.handshake.HandshakeTimeouts
 import dev.kiln.server.runtime.handshake.KickMessages
 import dev.kiln.server.runtime.handshake.SendThrottle
@@ -88,6 +89,7 @@ class KilnPlugin : JavaPlugin(), Listener {
         })
         server.pluginManager.registerEvents(this, this)
         server.pluginManager.registerEvents(handshakes, this)
+        server.pluginManager.registerEvents(CustomItemListener(bridge.items), this)
         // fallback for clients whose channel registration did not produce a PlayerRegisterChannelEvent
         server.scheduler.runTaskTimer(this, Runnable { bridge.flushAll() }, 20L, 20L)
         server.scheduler.runTaskTimer(this, Runnable { handshakes.sweep() }, 20L * 60, 20L * 60)

@@ -78,6 +78,9 @@ public interface Extension {
         handler: (ExtensionChannel<T>.(player: Player, message: T) -> Unit)? = null,
     ): ExtensionChannel<T>
 
+    /** `<id>:<name>`: key of content (items, sounds, fonts, models, …) in this extension's namespace. */
+    public fun key(name: String): Key = Key.key(id, name)
+
     /** Widget type `<id>:<name>` for `custom(id, extension.widget(name), ...)`, registered in Lua via `kiln.ui.widget`. */
     public fun widget(name: String): Key
 

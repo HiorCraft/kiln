@@ -38,6 +38,7 @@ import dev.kiln.protocol.ShowToast
 import dev.kiln.protocol.codec.MessageCodec
 import dev.kiln.server.runtime.extension.ExtensionMessenger
 import dev.kiln.server.runtime.extension.ExtensionRegistry
+import dev.kiln.server.runtime.item.CustomItemRegistry
 import dev.kiln.server.runtime.keybind.KeybindImpl
 import dev.kiln.server.runtime.keybind.KeybindRegistry
 import dev.kiln.server.runtime.screen.EventValidator
@@ -65,6 +66,8 @@ class KilnImpl(private val plugin: KilnPlugin) : Kiln, ExtensionMessenger {
     private var keybindsDirty = false
 
     val extensionRegistry = ExtensionRegistry(plugin.logger, this)
+
+    override val items: CustomItemRegistry = CustomItemRegistry(plugin.logger, extensionRegistry::impl)
 
     val keybindRegistry = KeybindRegistry(
         pressedLookup = { player, id -> sessions[player.uniqueId]?.pressedKeys?.contains(id) == true },
@@ -395,6 +398,7 @@ class KilnImpl(private val plugin: KilnPlugin) : Kiln, ExtensionMessenger {
     /** Removes everything [disabled] registered and closes the screens its code defined. */
     fun onPluginDisable(disabled: Plugin) {
         keybindRegistry.removeAll(disabled)
+        items.removeAll(disabled)
         extensionRegistry.removeAll(disabled)
         val loader = disabled.javaClass.classLoader
         sessions.values.mapNotNull { it.screen }

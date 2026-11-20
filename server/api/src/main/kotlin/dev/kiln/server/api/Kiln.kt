@@ -2,6 +2,7 @@ package dev.kiln.server.api
 
 import dev.kiln.server.api.extension.Extension
 import dev.kiln.server.api.extension.ExtensionSource
+import dev.kiln.server.api.item.CustomItems
 import dev.kiln.server.api.keybind.Keybind
 import dev.kiln.server.api.keybind.KeybindBuilder
 import dev.kiln.server.api.keybind.KeyCode
@@ -106,6 +107,11 @@ public interface Kiln {
 
     /** All registered extensions in delivery (load) order. */
     public fun extensions(): Collection<Extension>
+
+    // ---- content ------------------------------------------------------------------------------------------
+
+    /** Custom items backed by data components and extension resources. */
+    public val items: CustomItems
 
     public companion object {
         /** The registered implementation; throws if the Kiln plugin is not loaded. */
