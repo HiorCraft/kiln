@@ -1,14 +1,9 @@
 plugins {
-    alias(libs.plugins.kotlin.jvm)
-    `java-library`
+    id("kiln.library")
 }
 
 base {
     archivesName.set("kiln-server-api")
-}
-
-kotlin {
-    explicitApi()
 }
 
 dependencies {

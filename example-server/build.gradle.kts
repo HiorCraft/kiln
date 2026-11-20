@@ -1,6 +1,7 @@
 plugins {
-    alias(libs.plugins.kotlin.jvm)
-    alias(libs.plugins.shadow)
+    id("kiln.kotlin")
+    id("kiln.test")
+    id("kiln.shadow")
     alias(libs.plugins.run.paper)
 }
 
@@ -18,13 +19,6 @@ dependencies {
     testImplementation(libs.kotlin.stdlib)
     // Gson (JSON of the Lua shop channels) and Bukkit interfaces, no running server
     testImplementation(libs.paper.api)
-    testImplementation(platform(libs.junit.bom))
-    testImplementation(libs.junit.jupiter)
-    testRuntimeOnly(libs.junit.platform.launcher)
-}
-
-tasks.test {
-    useJUnitPlatform()
 }
 
 tasks.processResources {
@@ -33,19 +27,6 @@ tasks.processResources {
     filesMatching("plugin.yml") { expand(props) }
 }
 
-tasks.shadowJar {
-    archiveClassifier.set("")
-    // let Shadow's KotlinModuleMetadataTransformer see every *.kotlin_module instead of dropping duplicates
-    filesMatching("META-INF/*.kotlin_module") { duplicatesStrategy = DuplicatesStrategy.INCLUDE }
-}
-
-tasks.jar {
-    archiveClassifier.set("plain")
-}
-
-tasks.assemble {
-    dependsOn(tasks.shadowJar)
-}
 
 tasks.runServer {
     minecraftVersion(libs.versions.minecraft.get())

@@ -1,5 +1,6 @@
 plugins {
-    alias(libs.plugins.kotlin.jvm)
+    id("kiln.kotlin")
+    id("kiln.test")
     alias(libs.plugins.loom)
 }
 
@@ -46,14 +47,4 @@ tasks.processResources {
     val props = mapOf("version" to project.version)
     inputs.properties(props)
     filesMatching("fabric.mod.json") { expand(props) }
-}
-
-dependencies {
-    testImplementation(platform(libs.junit.bom))
-    testImplementation(libs.junit.jupiter)
-    testRuntimeOnly(libs.junit.platform.launcher)
-}
-
-tasks.test {
-    useJUnitPlatform()
 }
