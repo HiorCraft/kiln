@@ -593,3 +593,31 @@ Registry-Einträge; Kiln ist dafür Bootstrap-Abhängigkeit) plus `Kiln.enchantm
 `Extension.key(name)`, `Kiln.setPostEffect`. Demo: Extension `kiln_content` im Beispiel-Plugin, Assets aus
 `tools/gen_content_assets.py`.
 
+## Creative-Tabs und Möbel (Protokoll v7)
+
+**Creative-Tabs:** Die Runtime registriert beim Start 8 leere Tabs `kiln:server_0..7` (leer = von Vanilla
+ausgeblendet). `CreativeTabs(reset, tabs)` (S→C, nach dem Join und bei Änderungen, ein Eintrag pro Nachricht) füllt
+sie in Reihenfolge; Titel (Component-JSON) und Icon kommen per Mixin auf `CreativeModeTab`, der Inhalt wird durch
+Zurücksetzen von `CreativeModeTabs.CACHED_PARAMETERS` neu gebaut. Einträge mit `target` (z. B.
+`minecraft:ingredients`) landen über Fabric `CreativeModeTabEvents.MODIFY_OUTPUT_ALL` in Vanilla-Tabs. Herausnehmen ist
+Vanilla (voller Stack), Custom Items bleiben also Custom Items. Server-API: `Kiln.creativeTabs.register(plugin, key)
+{ title; icon; add(...) }`, `addToVanillaTab(plugin, CreativeTabs.INGREDIENTS) { ... }`, `refresh()`; ≤ 8 eigene Tabs,
+≤ 32 Einträge, ≤ 512 Items je Eintrag.
+
+**Möbel:** `Kiln.furniture.register(plugin, key) { item; model; modelHeight; hitbox(width, height, offset, solid);
+seat(offset); onInteract; onBreak }`. Gespeichert im Chunk-PDC `kiln:furniture` (Typ, Position, Gier, UUID); solange
+der Chunk geladen und der Typ registriert ist, existieren nicht-persistente Teile: ein Item-Display (um 180° gedreht,
+weil Item-Displays Modelle gedreht zeichnen) und je Hitbox eine `KilnInteraction` (NMS-Unterklasse von Interaction,
+`canBeCollidedWith = solid`). Ohne Kiln oder Plugin bleibt nichts in der Welt, die Daten im Chunk bleiben.
+Feste Hitboxen: der Server sendet beim Tracken `EntityTraits(id, solid)` (Teile werden vor `addFreshEntity`
+eingetragen, weil das Tracking dort sofort beginnt), der Client macht markierte Interaction-Entities per Mixin auf
+`Entity.canBeCollidedWith` fest; `EntityTraitsRemove` beim Enttracken. Mobs stoßen an, Pfadfindung weicht nicht aus.
+Platzieren: Rechtsklick mit dem Item auf einen Block (Gier auf 90° gerastet, Abbruch wenn Blöcke im Weg). Abbauen:
+Linksklick (Interaction-Angriffe laufen über `skipAttackInteraction`, nicht `PrePlayerAttackEntityEvent`). Sitzen:
+Rechtsklick setzt auf den freien Sitz, der dem Klickpunkt am nächsten ist (`seat(offset)`, `y` = Sitzfläche); beim
+Absteigen steht der Spieler oben auf dem Möbel. Hitboxen sind achsenparallel mit quadratischer Grundfläche; dünne
+Teile (Stuhllehne) werden aus mehreren schmalen Boxen gebaut.
+
+**Ressourcen-Reload beim Verlassen:** erst nach Abschluss des Disconnects (`Minecraft.disconnect` verwirft alle
+wartenden Main-Thread-Aufgaben).
+

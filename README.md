@@ -133,6 +133,8 @@ the world. Players need `kiln-client-<v>.jar`, Fabric API and Fabric Language Ko
 | `/kiln give lifesteal_sword` | | custom enchantment `kiln_content:lifesteal` (bootstrap registry), heals on hit |
 | `/kiln font` | | chat message in the bitmap font `kiln_content:runes` (also in a HUD label from Lua) |
 | `/kiln effect [ruby_vision\|off]` | | post-processing effect from the extension's resources |
+| `/kiln give chair\|table\|bench` | | furniture: model + solid hit boxes (the bench has two and three seats), right click on a block places, right click sits, left click breaks |
+| creative inventory | | tab „Kiln Inhalte“ with the custom items; the ruby also appears under „Ingredients“ |
 
 ## Using Kiln in your plugin
 
