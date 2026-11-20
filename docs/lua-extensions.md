@@ -549,3 +549,42 @@ end)
   loggt das Plugin „N of at most 128 extensions registered“. Joins scheitern daran nicht mehr.
 - Host-Code liest Lua-Definitionen (Widgets, Screens) mit `rawget`, damit keine Metamethoden außerhalb eines
   budgetierten Aufrufs laufen.
+
+## Ressourcen (Protokoll v6)
+
+**Paket:** zusätzlich zu `extension.json`, Lua, `textures/` und `lang/` an der Wurzel darf ein Paket einen Resourcepack-
+Baum `assets/<id>/…` enthalten (gemeinsame Regeln `AssetRules` im `protocol`-Modul, Server beim Packen und Client beim
+Lesen):
+- nur der eigene Namensraum `assets/<id>/`; nichts darf Vanilla, kiln oder andere Extensions überschreiben;
+- Endungen `json png mcmeta ogg ttf otf fsh vsh glsl txt`; `.ogg` ≤ 8 MiB, `.ttf/.otf` ≤ 4 MiB, PNG ≤ 4096×4096;
+- JSON muss gültig sein; Verweise auf andere Namensräume (`minecraft:item/generated`, Vanilla-Shader) sind erlaubt,
+  Verweise auf `kiln:` verboten (keine kiln-UI-Texturen für gefälschte Dialoge);
+- Sprachschlüssel in `assets/<id>/lang/*.json` beginnen mit `<id>.`;
+- `main` ist optional: Pakete ohne Lua sind reine Ressourcen-Pakete.
+- Paketgrenzen v6: Zip ≤ 32 MiB, entpackt ≤ 64 MiB, ≤ 4096 Dateien.
+
+**Recht `resources`:** Pflicht, sobald `assets/` existiert (der Server ergänzt es beim Packen automatisch, der Client
+verlangt es). Der Zustimmungs-Screen zeigt „Ressourcen: Modelle, Texturen, Sounds, Schriften“.
+
+**Client:** Nachdem alle Extensions geladen sind (Configuration-Phase), hängt der Client die `assets/`-Bäume als
+In-Memory-Resourcepack `kiln:server` ein (oberstes, festes, erforderliches Pack; nur im Client-Resourcepack-Repository)
+und lädt die Ressourcen neu (Phase `RELOADING`, „Ressourcen werden geladen…“). Erst danach `ExtensionsReady(true)`;
+ein Fehler beim Reload → `ExtensionsReady(false, "Ressourcen konnten nicht geladen werden: …")`. Beim Disconnect wird das
+Pack entfernt und erneut geladen. Ohne Assets entfällt der Reload.
+
+**Nutzung:** Modelle über Item-Definitionen (`assets/<id>/items/<name>.json`) und die Komponente `item_model`; Sounds
+über `sounds.json` (`Sound.sound(Key.key(id, name), …)`); Schriften über `font/<name>.json`
+(`Component.font(Key.key(id, name))`); Post-Effekte über `post_effect/<name>.json` und `Kiln.setPostEffect(player, key)`
+(S→C `SetPostEffect(id?)`, der Client fügt den Effekt jedes Frame zu den angeforderten Effekten hinzu).
+
+**Lua:** `kiln.sound.play(id, { volume = 0..1, pitch = 0.5..2 })` (Recht `resources`, höchstens 10/s) und
+`g:text(text, x, y, { font = "<ns>:<name>" })`. Erlaubt sind der eigene Namensraum und die der `dependencies`; sonst
+Lua-Fehler „namespace '…' not allowed“.
+
+**Server-API:** `Kiln.items.register(plugin, key) { model; base; name; lore; components { set(…) }; onUse/onHit/onBreakBlock }`
+(Stacks mit Datenkomponenten, erkannt über PDC `kiln:item`; Namensraum = Extension desselben Plugins, Item-Definition
+muss existieren), `KilnBootstrap.enchantments(context) { register(key) { … } }` im `PluginBootstrap` (echte
+Registry-Einträge; Kiln ist dafür Bootstrap-Abhängigkeit) plus `Kiln.enchantments.onHit/onBreak/onTick`,
+`Extension.key(name)`, `Kiln.setPostEffect`. Demo: Extension `kiln_content` im Beispiel-Plugin, Assets aus
+`tools/gen_content_assets.py`.
+

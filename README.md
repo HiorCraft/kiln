@@ -29,7 +29,9 @@ bent into shape, but always with hacks such as core shaders or font tricks. Kiln
 FiveM or Garry's Mod:
 
 - Players install the **Kiln runtime** once, a small Fabric mod.
-- Everything client-side a server needs comes **from the server**: GUI trees, keybinds, textures and Lua scripts.
+- Everything client-side a server needs comes **from the server**: GUI trees, keybinds, Lua scripts and a full
+  resource-pack tree (models, item definitions, textures, sounds, fonts, languages, post effects), mounted as a real
+  resource pack. Plugins add custom items and custom enchantments on top.
 - Game logic, money, items and validation stay on the **Paper server**. The client only renders and reports input.
 - Server scripts run in a **sandbox** (LuaJ without `io`, `os`, `debug`, `load` or Java access, with instruction,
   memory and rate budgets). Players see which permissions an extension wants and agree **before** anything is
@@ -127,6 +129,10 @@ the world. Players need `kiln-client-<v>.jar`, Fabric API and Fabric Language Ko
 | `/warps` | V | warp tiles, search, favourites, teleport with cooldown |
 | `/bestenliste` | N | sortable leaderboard table and bar chart |
 | `/profil` | M | settings form with live preview and unsaved-changes dialog |
+| `/kiln give ruby` | | custom item with its own model and texture; right click plays the custom sound `ruby_chime` |
+| `/kiln give lifesteal_sword` | | custom enchantment `kiln_content:lifesteal` (bootstrap registry), heals on hit |
+| `/kiln font` | | chat message in the bitmap font `kiln_content:runes` (also in a HUD label from Lua) |
+| `/kiln effect [ruby_vision\|off]` | | post-processing effect from the extension's resources |
 
 ## Using Kiln in your plugin
 

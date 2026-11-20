@@ -28,7 +28,7 @@ Java 25, Kotlin. Keine surf-Abhängigkeiten. Basis-Package `dev.kiln`.
 ## Protokoll
 
 Ein Kanal pro Richtung reicht: `kiln:main` (Plugin-Messaging / Fabric Custom Payload, Byte-Array).
-Jede Nachricht: `varint typeId` + Felder. `PROTOCOL_VERSION` als Konstante (v3); bei Mismatch wird der Spieler gekickt.
+Jede Nachricht: `varint typeId` + Felder. `PROTOCOL_VERSION` als Konstante (aktuell v6, Ressourcen siehe `docs/lua-extensions.md`, „Ressourcen (Protokoll v6)“); bei Mismatch wird der Spieler gekickt.
 Ab v3 (Lua-Extensions) gilt `docs/lua-extensions.md`, Abschnitt „Entscheidungen“: Handshake und Paket-Auslieferung
 in der Configuration-Phase.
 
