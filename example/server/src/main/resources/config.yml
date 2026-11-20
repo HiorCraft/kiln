@@ -1,0 +1,4 @@
+# Demos this server runs (and so the Lua extensions it delivers). Empty = all of them.
+# factory: /pbdemo, factory GUI, keybinds (kiln_example)    shop: /shop and /shopdsl (ui_kit + shop)
+# fabrik, quests, warps, bestenliste, profil: ui_kit demo GUIs    content: /kiln (items, furniture, golem, ...)
+demos: []

@@ -71,6 +71,35 @@ class ExamplePlugin : JavaPlugin(), Listener, TabExecutor {
     private lateinit var machineChannel: ExtensionChannel<MachineState>
 
     override fun onEnable() {
+        saveDefaultConfig()
+        // which demos (and so which extensions) this server delivers; two servers behind a proxy can differ
+        val enabled = config.getStringList("demos").map { it.lowercase() }.toSet().ifEmpty { ALL_DEMOS }
+        val unknown = enabled - ALL_DEMOS
+        if (unknown.isNotEmpty()) logger.warning("Unknown demos in config.yml: $unknown (known: $ALL_DEMOS)")
+        logger.info("Demos: ${ALL_DEMOS.filter { it in enabled }}")
+        if (ALL_DEMOS.any { it in enabled && it in UI_KIT_DEMOS }) registerExtension("ui_kit")
+        if ("factory" in enabled) enableFactory()
+        if ("shop" in enabled) {
+            // /shopdsl: server-rendered market (screen DSL); /shop: the same market as Lua extension (ui_kit + shop)
+            val dslShop = ShopService(this)
+            ExampleCommands.register(this, "shopdsl", dslShop)
+            ExampleCommands.register(this, "shop", LuaShopService(this, dslShop))
+        }
+        // five ui_kit demo GUIs (Lua extensions with their own keybind): command -> demo
+        val demos: Map<String, (JavaPlugin) -> LuaDemo> = linkedMapOf(
+            "fabrik" to ::FactoryDemo,
+            "quests" to ::QuestDemo,
+            "warps" to ::WarpDemo,
+            "bestenliste" to ::LeaderboardDemo,
+            "profil" to ::ProfileDemo,
+        )
+        for ((command, create) in demos) if (command in enabled) ExampleCommands.register(this, command, create(this))
+        // resources from extension kiln_content: custom item, sound, font, enchantment, post effect
+        if ("content" in enabled) ExampleCommands.register(this, "kiln", ContentDemo(this))
+    }
+
+    /** `/pbdemo`, the factory GUI and the keybinds of extension `kiln_example`. */
+    private fun enableFactory() {
         val bridge = Kiln.get()
 
         // src/main/resources/extensions/kiln_example/ -> delivered to every client while it connects
@@ -98,22 +127,6 @@ class ExamplePlugin : JavaPlugin(), Listener, TabExecutor {
         }
 
         ExampleCommands.register(this, "pbdemo", this)
-        // /shopdsl: server-rendered market (screen DSL); /shop: the same market as Lua extension (ui_kit + shop)
-        val dslShop = ShopService(this)
-        ExampleCommands.register(this, "shopdsl", dslShop)
-        val luaShop = LuaShopService(this, dslShop)
-        ExampleCommands.register(this, "shop", luaShop)
-        // five ui_kit demo GUIs (Lua extensions with their own keybind): command -> demo
-        val demos: Map<String, (JavaPlugin) -> LuaDemo> = linkedMapOf(
-            "fabrik" to ::FactoryDemo,
-            "quests" to ::QuestDemo,
-            "warps" to ::WarpDemo,
-            "bestenliste" to ::LeaderboardDemo,
-            "profil" to ::ProfileDemo,
-        )
-        for ((command, create) in demos) ExampleCommands.register(this, command, create(this))
-        // resources from extension kiln_content: custom item, sound, font, enchantment, post effect
-        ExampleCommands.register(this, "kiln", ContentDemo(this))
         server.pluginManager.registerEvents(this, this)
 
         // live updates: the factory runs once per second and every open GUI is re-rendered
@@ -290,5 +303,11 @@ class ExamplePlugin : JavaPlugin(), Listener, TabExecutor {
         const val HEIGHT = 196
         const val INNER = WIDTH - 12
         val SUBCOMMANDS = listOf("open", "close", "status")
+
+        /** Keys of `demos` in config.yml, in registration order. */
+        val ALL_DEMOS = linkedSetOf("factory", "shop", "fabrik", "quests", "warps", "bestenliste", "profil", "content")
+
+        /** Demos whose extensions import `ui_kit`. */
+        val UI_KIT_DEMOS = setOf("shop", "fabrik", "quests", "warps", "bestenliste", "profil")
     }
 }

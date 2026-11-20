@@ -137,6 +137,22 @@ the world. Players need `kiln-client-<v>.jar`, Fabric API and Fabric Language Ko
 | `/kiln spawn golem` | | custom entity: Bedrock bone model with walk/idle/smash/roar animations, own AI (wander, look, chase, smash sequence), enrage state below half health, sounds, saved with its chunk |
 | creative inventory | | tab „Kiln Inhalte“ with the custom items; the ruby also appears under „Ingredients“ |
 
+### Proxy network (Velocity)
+
+Two backends with different extensions behind Velocity, each in its own terminal:
+
+```
+./gradlew :example:server:runSurvival   # port 25566: shop, content, factory
+./gradlew :example:server:runGames      # port 25567: quests, warps, bestenliste
+./gradlew :example:server:runVelocity   # port 25565, modern forwarding
+./gradlew :example:server:runClient -PquickPlay
+```
+
+Switch with `/server games` and `/server survival`: on every backend switch the client announces Kiln again, the
+new backend runs the handshake (consent only for new permissions, keyed by the proxy address) and the extensions
+and resources of the previous backend are replaced. Which demos a backend runs is `demos` in
+`plugins/KilnExample/config.yml` (empty = all).
+
 ## Using Kiln in your plugin
 
 Apply the Gradle plugin `dev.kiln` (published to `mavenLocal()` for now). It adds `paper-api`, `kiln-server-api`

@@ -32,7 +32,7 @@ import java.util.logging.Level
  * in [LuaShopController]; this class wires channels, commands and the inventory of online players.
  */
 class LuaShopService(private val plugin: JavaPlugin, private val dsl: ShopService) : TabExecutor, Listener {
-    val uiKit: Extension = plugin.registerExtension("ui_kit")
+    // needs ui_kit, which ExamplePlugin registers for every demo that uses it
     val extension: Extension = plugin.registerExtension("shop")
 
     private val access = BukkitInventoryAccess(dsl)

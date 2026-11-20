@@ -36,4 +36,5 @@ gradle-paperweight = { module = "io.papermc.paperweight.userdev:io.papermc.paper
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 shadow = { id = "com.gradleup.shadow", version.ref = "shadow" }
 run-paper = { id = "xyz.jpenilla.run-paper", version.ref = "run-paper" }
+run-velocity = { id = "xyz.jpenilla.run-velocity", version.ref = "run-paper" }
 loom = { id = "net.fabricmc.fabric-loom", version.ref = "loom" }
