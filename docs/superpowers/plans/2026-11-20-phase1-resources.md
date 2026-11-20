@@ -53,8 +53,8 @@
 ### Task 2: Server-Packager für `assets/` und Ressourcen-Pakete
 
 **Files:**
-- Modify: `server/src/main/kotlin/dev/kiln/server/extension/ExtensionPackager.kt`, `ExtensionFiles.kt` (Budgets aus `ProtocolLimits`)
-- Test: `server/src/test/kotlin/dev/kiln/server/extension/ExtensionPackagerTest.kt`
+- Modify: `server/runtime/src/main/kotlin/dev/kiln/server/runtime/extension/ExtensionPackager.kt`, `ExtensionFiles.kt` (Budgets aus `ProtocolLimits`)
+- Test: `server/runtime/src/test/kotlin/dev/kiln/server/runtime/extension/ExtensionPackagerTest.kt`
 
 **Interfaces:**
 - `ExtensionPackage.main: String?` (null = kein Lua). `ExtensionPackage.hasAssets: Boolean`.
@@ -101,17 +101,17 @@
 ### Task 5: Custom Items
 
 **Files:**
-- Create: `server-api/src/main/kotlin/dev/kiln/api/item/CustomItems.kt` (`CustomItems`, `CustomItem`, `CustomItemBuilder`)
-- Modify: `server-api/src/main/kotlin/dev/kiln/api/Kiln.kt` (`val items: CustomItems`)
-- Create: `server/src/main/kotlin/dev/kiln/server/item/CustomItemRegistry.kt`, `CustomItemListener.kt`
-- Modify: `server/.../extension/ExtensionRegistry.kt` (Abfrage „Extension-Id gehört Plugin X und enthält Datei Y“)
-- Test: `server/src/test/kotlin/dev/kiln/server/item/CustomItemRegistryTest.kt`
+- Create: `server/api/src/main/kotlin/dev/kiln/server/api/item/CustomItems.kt` (`CustomItems`, `CustomItem`, `CustomItemBuilder`)
+- Modify: `server/api/src/main/kotlin/dev/kiln/server/api/Kiln.kt` (`val items: CustomItems`)
+- Create: `server/runtime/src/main/kotlin/dev/kiln/server/runtime/item/CustomItemRegistry.kt`, `CustomItemListener.kt`
+- Modify: `server/runtime/.../extension/ExtensionRegistry.kt` (Abfrage „Extension-Id gehört Plugin X und enthält Datei Y“)
+- Test: `server/runtime/src/test/kotlin/dev/kiln/server/runtime/item/CustomItemRegistryTest.kt`
 
 **Interfaces:**
 - `interface CustomItems { fun register(plugin: Plugin, key: Key, init: CustomItemBuilder.() -> Unit): CustomItem; fun of(stack: ItemStack?): CustomItem?; fun get(key: Key): CustomItem?; fun all(): Collection<CustomItem> }`
 - `class CustomItemBuilder { var model: Key?; var base: ItemType = ItemType.PAPER; var name: Component?; var lore: List<Component>; fun components(block: ItemComponents.() -> Unit); fun onUse(h: (Player, ItemStack, PlayerInteractEvent) -> Unit); fun onHit(h: (Player, Entity, ItemStack, EntityDamageByEntityEvent) -> Unit); fun onBreakBlock(h: (Player, Block, ItemStack, BlockBreakEvent) -> Unit) }` – `ItemComponents` ist eine dünne Hülle, die `setData(DataComponentType.Valued<T>, T)` / `setData(NonValued)` sammelt und beim `create` anwendet.
 - `interface CustomItem : Registration { val key: Key; val plugin: Plugin; fun create(amount: Int = 1): ItemStack; fun matches(stack: ItemStack?): Boolean }`
-- PDC-Schlüssel `kiln:item` (String = Key). Zusätzlich `Extension.key(name: String): Key` (= `Key.key(id, name)`) in `server-api`. `model` Default = `key`. Registrierung prüft: Namensraum == Extension-Id dieses Plugins; `assets/<ns>/items/<path>.json` existiert in dieser Extension → sonst `IllegalArgumentException` mit Text „Item model <key> not found in extension <ns> (expected assets/<ns>/items/<path>.json)“. Doppelter Key → `IllegalStateException`. Plugin-Disable entfernt die Registrierungen.
+- PDC-Schlüssel `kiln:item` (String = Key). Zusätzlich `Extension.key(name: String): Key` (= `Key.key(id, name)`) in `server/api`. `model` Default = `key`. Registrierung prüft: Namensraum == Extension-Id dieses Plugins; `assets/<ns>/items/<path>.json` existiert in dieser Extension → sonst `IllegalArgumentException` mit Text „Item model <key> not found in extension <ns> (expected assets/<ns>/items/<path>.json)“. Doppelter Key → `IllegalStateException`. Plugin-Disable entfernt die Registrierungen.
 - Die Prüflogik liegt in einer reinen Funktion `CustomItemRegistry.validate(key, model, plugin, extensions: (String) -> ExtensionLookup?)` – testbar ohne Server.
 
 - [ ] **Step 1: Failing tests**: `rejectsForeignNamespace`, `rejectsMissingItemDefinition`, `acceptsExistingDefinition`, `rejectsDuplicateKey`, `modelDefaultsToKey`.
@@ -121,10 +121,10 @@
 ### Task 6: Custom Enchantments
 
 **Files:**
-- Create: `server-api/src/main/kotlin/dev/kiln/api/enchantment/KilnBootstrap.kt`, `Enchantments.kt`
-- Modify: `server-api/.../Kiln.kt` (`val enchantments: CustomEnchantments`)
-- Create: `server/src/main/kotlin/dev/kiln/server/enchantment/EnchantmentHooks.kt`
-- Test: `server/src/test/kotlin/dev/kiln/server/enchantment/EnchantmentHooksTest.kt`
+- Create: `server/api/src/main/kotlin/dev/kiln/server/api/enchantment/KilnBootstrap.kt`, `Enchantments.kt`
+- Modify: `server/api/.../Kiln.kt` (`val enchantments: CustomEnchantments`)
+- Create: `server/runtime/src/main/kotlin/dev/kiln/server/runtime/enchantment/EnchantmentHooks.kt`
+- Test: `server/runtime/src/test/kotlin/dev/kiln/server/runtime/enchantment/EnchantmentHooksTest.kt`
 
 **Interfaces:**
 - `object KilnBootstrap { fun enchantments(context: BootstrapContext, block: EnchantmentDefinitions.() -> Unit) }` – registriert einen Handler für `RegistryEvents.ENCHANTMENT.compose()` und legt pro `register(key) { … }` einen Eintrag an. Builder-Felder: `description: Component`, `supportedItems: TagKey<ItemType>`, `primaryItems: TagKey<ItemType>?`, `maxLevel: Int = 1`, `weight: Int = 1`, `anvilCost: Int = 1`, `minCost/maxCost: EnchantmentCost` (Defaults `of(1, 10)` / `of(21, 10)`), `fun slots(vararg EquipmentSlotGroup)`. Registrierte Keys merkt sich ein statischer Speicher `KilnBootstrap.registered: Set<Key>`.
@@ -139,10 +139,10 @@
 ### Task 7: Post-Effekte, Lua-Sounds und -Fonts
 
 **Files:**
-- Modify: `server-api/.../Kiln.kt` (`fun setPostEffect(player: Player, effect: Key?)`), `server/.../KilnImpl.kt` (sendet `SetPostEffect`; Key muss Namensraum einer registrierten Extension sein oder `null`)
+- Modify: `server/api/.../Kiln.kt` (`fun setPostEffect(player: Player, effect: Key?)`), `server/runtime/.../KilnImpl.kt` (sendet `SetPostEffect`; Key muss Namensraum einer registrierten Extension sein oder `null`)
 - Modify: `client/.../KilnClientImpl.kt` (`SetPostEffect` → `GameRenderer.setPostEffect(Identifier)` bzw. `clearPostEffect()`; unbekannter Effekt → Debug-Log)
 - Modify: `client/.../lua/LuaExtension.kt` (`kiln.sound.play(id, {volume, pitch})` gated `resources`; Kurznamen über bestehendes `ui.sound`), `lua/LuaGraphics.kt` + `ext/GuiDrawTarget.kt` (`font`-Option in `g:text`, gated `resources`, nur erlaubte Namensräume)
-- Test: `client/src/test/kotlin/dev/kiln/client/lua/LuaResourcesTest.kt`, `server/src/test/.../PostEffectTest.kt`
+- Test: `client/src/test/kotlin/dev/kiln/client/lua/LuaResourcesTest.kt`, `server/runtime/src/test/.../PostEffectTest.kt`
 
 **Interfaces:**
 - `ExtensionHost.playSound(id: Identifier, volume: Float, pitch: Float)` neu (bestehende Kurzname-Variante bleibt).
@@ -156,15 +156,15 @@
 ### Task 8: Demos und Doku
 
 **Files:**
-- Create: `example-server/src/main/resources/extensions/kiln_content/extension.json` (Ressourcen-Paket + kleines `main.lua` für die HUD-Font-Demo, Rechte `hud`, `resources`)
+- Create: `example/server/src/main/resources/extensions/kiln_content/extension.json` (Ressourcen-Paket + kleines `main.lua` für die HUD-Font-Demo, Rechte `hud`, `resources`)
 - Create: `…/kiln_content/assets/kiln_content/items/ruby.json`, `models/item/ruby.json`, `textures/item/ruby.png`, `sounds.json`, `sounds/ruby_chime.ogg`, `font/runes.json`, `textures/font/runes.png`, `lang/en_us.json`, `lang/de_de.json`, `post_effect/wobble.json` (+ ggf. Shader im eigenen Namensraum)
 - Create: `tools/gen_content_assets.py` (erzeugt PNGs + Font-Bitmap deterministisch; `.ogg` siehe Step 1)
-- Create: `example-server/src/main/kotlin/dev/kiln/example/server/demos/content/ContentDemo.kt`, `ExampleBootstrap.kt`
-- Modify: `example-server/build.gradle.kts` (`paper { bootstrapper = "dev.kiln.example.server.ExampleBootstrap" }`), `ExamplePlugin.kt`, `ExampleCommands.kt` (`/kiln give ruby|lifesteal_sword`, `/kiln font`, `/kiln effect [wobble|off]`)
+- Create: `example/server/src/main/kotlin/dev/kiln/example/server/demos/content/ContentDemo.kt`, `ExampleBootstrap.kt`
+- Modify: `example/server/build.gradle.kts` (`paper { bootstrapper = "dev.kiln.example.server.ExampleBootstrap" }`), `ExamplePlugin.kt`, `ExampleCommands.kt` (`/kiln give ruby|lifesteal_sword`, `/kiln font`, `/kiln effect [wobble|off]`)
 - Modify: `README.md` (Demo-Tabelle), `docs/lua-extensions.md` (Paketformat v6, `resources`, `kiln.sound`, `font`), `docs/design.md` (Protokoll v6)
 
 - [ ] **Step 1:** `.ogg`-Quelle klären: Im Repo gibt es keinen Ogg-Encoder (kein ffmpeg/oggenc). Vor diesem Schritt den User fragen: eigene `.ogg` liefern oder `pip install soundfile` (libsndfile mit Vorbis) für `tools/gen_content_assets.py` erlauben.
 - [ ] **Step 2:** Assets erzeugen, Demo-Code schreiben: Rubin (`kiln.items.register`, `onUse` spielt `Sound.sound(Key.key("kiln_content","ruby_chime"), MASTER, 1f, 1f)`), Lifesteal (Bootstrap, `onHit` heilt `level` Herzen × Schaden 20 %), Font-Nachricht, Post-Effekt.
 - [ ] **Step 3:** `./gradlew build` → PASS (inkl. `DemoExtensionsTest`, der `kiln_content` mit den Client-Regeln liest – Fall ergänzen).
-- [ ] **Step 4: Manuell** mit `:example-server:runServer` + `:example-server:runClient`: Zustimmung zeigt „Ressourcen“, Rubin hat eigenes Modell, Rechtsklick spielt Sound, `/kiln font` zeigt Runen, Lifesteal-Schwert im Verzauberungstisch-Text und heilt, `/kiln effect wobble` an/aus, Disconnect entfernt alles.
+- [ ] **Step 4: Manuell** mit `:example:server:runServer` + `:example:server:runClient`: Zustimmung zeigt „Ressourcen“, Rubin hat eigenes Modell, Rechtsklick spielt Sound, `/kiln font` zeigt Runen, Lifesteal-Schwert im Verzauberungstisch-Text und heilt, `/kiln effect wobble` an/aus, Disconnect entfernt alles.
 - [ ] **Step 5:** Commit `feat(example): add content demos for items, sounds, fonts, enchantments and post effects`.

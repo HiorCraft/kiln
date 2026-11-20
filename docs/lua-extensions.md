@@ -207,7 +207,7 @@ verbindende Spieler. Entfernt wurden `isConnected`, `connectedPlayers`, `extensi
 jeder Spieler in der Welt hat Runtime und alle Extensions. `openScreen` liefert immer einen Handle (wirft nur für
 Offline-Spieler), `showToast` gibt nichts zurück. Server-Keybinds (`registerKeybind`) bleiben.
 
-Das Beispiel `example-server/src/main/resources/extensions/kiln_example/main.lua` nutzt
+Das Beispiel `example/server/src/main/resources/extensions/kiln_example/main.lua` nutzt
 `g:arc(cx, cy, radius, thickness, from, to, color)` wie im Entwurf: oberer Halbkreis um (cx, cy), `from`/`to` als
 Anteil 0..1 von links nach rechts; Farben als ARGB-Zahlen (z. B. `0xFF3C3C3C`); `w.props.*` sind Strings.
 

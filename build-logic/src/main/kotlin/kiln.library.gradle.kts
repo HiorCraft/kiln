@@ -1,9 +1,11 @@
-// Published Kotlin library with an explicit public API (protocol, server-api)
+import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
+
+// Published Kotlin library with an explicit public API (protocol, server:api)
 plugins {
     id("kiln.kotlin")
     `java-library`
 }
 
-kotlin {
+extensions.configure<KotlinJvmProjectExtension> {
     explicitApi()
 }

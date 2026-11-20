@@ -94,10 +94,10 @@ ext.channel<HelloMessage>("hello") { player, msg -> send(player, HelloMessage("H
 | Module | Kind | Artifact |
 |---|---|---|
 | `protocol` | plain Kotlin/JVM, no Minecraft | messages, GUI tree, binary codec, limits |
-| `server-api` | Kotlin, `compileOnly` paper-api | API for Paper plugins: screen DSL, keybinds, extensions, typed channels |
-| `server` | Paper plugin `Kiln` | `kiln-server-<v>.jar` (shades `protocol`, `server-api`, Kotlin stdlib) |
+| `server/api` | Kotlin, `compileOnly` paper-api | API for Paper plugins: screen DSL, keybinds, extensions, typed channels |
+| `server/runtime` | Paper plugin `Kiln` | `kiln-server-<v>.jar` (shades `protocol`, `server/api`, Kotlin stdlib; NMS via paperweight) |
 | `client` | Fabric mod `kiln` | `kiln-client-<v>.jar` (`protocol` and LuaJ as nested jars) |
-| `example-server` | Paper plugin `KilnExample` | demos and Lua extensions, see below |
+| `example/server` | Paper plugin `KilnExample` | demos and Lua extensions, see below |
 | `build-logic` | included build | convention plugins (`kiln.kotlin`, `kiln.test`, `kiln.library`, `kiln.shadow`, `kiln.paper-plugin`, `kiln.nms`, `kiln.publish`) |
 | `gradle-plugin` | Gradle plugin `dev.kiln` | `paper-plugin.yml` with Kiln dependency, `runServer`, `runClient` for plugins using Kiln |
 
@@ -107,8 +107,8 @@ Requirements: Java 25. Gradle downloads everything else.
 
 ```sh
 ./gradlew build                     # all modules, including tests
-./gradlew :example-server:runServer # Paper 26.3 with Kiln and the demos (run/server)
-./gradlew :example-server:runClient # Minecraft 26.3 with the Kiln runtime (run/client), offline user "Ammo"
+./gradlew :example:server:runServer # Paper 26.3 with Kiln and the demos (run/server)
+./gradlew :example:server:runClient # Minecraft 26.3 with the Kiln runtime (run/client), offline user "Ammo"
 ./gradlew :client:runClient         # the same from the client module (client/run)
 ./gradlew publishToMavenLocal; ./gradlew -p gradle-plugin publishToMavenLocal   # dev.kiln:* artifacts + plugin
 ```

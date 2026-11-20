@@ -16,14 +16,14 @@ Java 25, Kotlin. Keine surf-Abhängigkeiten. Basis-Package `dev.kiln`.
 | Modul | Art | Inhalt |
 |---|---|---|
 | `protocol` | pure Kotlin/JVM, keine MC-Abhängigkeit | Nachrichten, GUI-Baum, binärer Codec (DataInput/DataOutput, keine Libs) |
-| `server-api` | Kotlin, `compileOnly` paper-api | API für Paper-Plugins (wie paper-api) |
-| `server` | Paper-Plugin | Implementierung von `server-api`, Kanal, Handshake, Sessions |
+| `server/api` | Kotlin, `compileOnly` paper-api | API für Paper-Plugins (wie paper-api), Package `dev.kiln.server.api` |
+| `server/runtime` | Paper-Plugin | Implementierung von `server/api`, Kanal, Handshake, Sessions, Package `dev.kiln.server.runtime` |
 | `client` | Fabric-Mod | Runtime: empfängt Payloads, rendert Screens, Keybinds, sendet Events |
-| `example-server` | Paper-Plugin | Demo gegen `server-api`: Factory-GUI, Keybinds |
+| `example/server` | Paper-Plugin | Demo gegen `server/api`: Factory-GUI, Keybinds |
 | `build-logic` | Included Build | Convention-Plugins (`kiln.kotlin`, `kiln.test`, `kiln.library`, `kiln.shadow`, `kiln.paper-plugin`, `kiln.nms`, `kiln.publish`) |
 | `gradle-plugin` | Included Build, Plugin `dev.kiln` | für Kiln-Projekte: Abhängigkeiten, `paper-plugin.yml`, `runServer`, `runClient` |
 
-`server` bündelt `protocol` + `server-api` (+ Kotlin-Stdlib) und nutzt NMS über paperweight-userdev (Mojang-Namen, kein Reobf); `server` und `example-server` sind Paper-Plugins (`paper-plugin.yml`, generiert mit plugin-yml). `client` bündelt `protocol` + LuaJ per `include`. Das Example-Modul hängt nur an `server-api` (compileOnly).
+`server/runtime` bündelt `protocol` + `server/api` (+ Kotlin-Stdlib) und nutzt NMS über paperweight-userdev (Mojang-Namen, kein Reobf); `server/runtime` und `example/server` sind Paper-Plugins (`paper-plugin.yml`, generiert mit plugin-yml). `client` bündelt `protocol` + LuaJ per `include`. Das Example-Modul hängt nur an `server/api` (compileOnly).
 
 ## Protokoll
 

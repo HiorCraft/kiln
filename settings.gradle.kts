@@ -24,8 +24,8 @@ rootProject.name = "kiln"
 
 include(
     "protocol",
-    "server-api",
-    "server",
+    "server:api",
+    "server:runtime",
     "client",
-    "example-server",
+    "example:server",
 )

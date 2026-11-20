@@ -26,7 +26,7 @@ jobs:
         with:
           name: kiln-jars
           path: |
-            server/build/libs/kiln-server-*.jar
+            server/runtime/build/libs/kiln-server-*.jar
             client/build/libs/kiln-client-*.jar
-            example-server/build/libs/kiln-example-server-*.jar
+            example/server/build/libs/kiln-example-server-*.jar
           if-no-files-found: error

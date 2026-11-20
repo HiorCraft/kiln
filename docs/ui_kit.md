@@ -1,6 +1,6 @@
 # ui_kit – UI-Komponenten für Lua-Screens
 
-API-Extension (`example-server/src/main/resources/extensions/ui_kit/`, **keine Rechte**, Version 1.1.0), exportiert
+API-Extension (`example/server/src/main/resources/extensions/ui_kit/`, **keine Rechte**, Version 1.1.0), exportiert
 per `kiln.export`. Benutzt wird sie vom Lua-Shop (`.../extensions/shop/`) und den fünf Demo-GUIs (Abschnitt
 „Demo-GUIs“), Tests: `client/src/test/kotlin/dev/kiln/client/lua/ShopExtensionTest.kt`,
 `DemoExtensionsTest.kt`.
@@ -130,7 +130,7 @@ local col = kit.column(x, y, { gap = 4, w = 100, padding }) ; local x, y, w, h =
 
 ## Shop-Kanäle (`shop:<name>`, Beispiel-Plugin)
 
-Der Server (`example-server/.../shop/lua/`) ist autoritativ: Geld, Bestand, Inventar und Preise werden bei jeder
+Der Server (`example/server/.../shop/lua/`) ist autoritativ: Geld, Bestand, Inventar und Preise werden bei jeder
 Anfrage gegen den echten Zustand geprüft; der Client zeigt nur an und filtert/sortiert lokal.
 
 | Kanal | Richtung | Inhalt |
@@ -154,8 +154,8 @@ sofort, danach 4/s pro Spieler.
 
 ## Demo-GUIs (Beispiel-Plugin)
 
-Fünf eigenständige Lua-Extensions auf ui_kit (Lua: `example-server/src/main/resources/extensions/<id>/`, Server:
-`example-server/.../demos/<name>/`, registriert in `ExamplePlugin`). Jede hat Rechte `keybinds`, `channels`,
+Fünf eigenständige Lua-Extensions auf ui_kit (Lua: `example/server/src/main/resources/extensions/<id>/`, Server:
+`example/server/.../demos/<name>/`, registriert in `ExamplePlugin`). Jede hat Rechte `keybinds`, `channels`,
 `screens`, hängt von `ui_kit >=1.1 <2` ab, öffnet sich per eigenem Keybind (`kiln.keys.bind`, Taste in den
 Steuerungs-Optionen änderbar) und per Befehl. Die Default-Tasten sind in Vanilla 26.3 unbelegt (Vanilla belegt u. a.
 W A S D E F Q T L O P C X G, Shift, Strg, Tab, `/`, F1–F5, F11) und kollidieren nicht mit G, H, J, K des Beispiels.
@@ -182,4 +182,4 @@ message?, error?, fields?}`) und je Demo:
 
 Ungültige Typen (Strings statt Zahlen, Nachkommastellen, Steuerzeichen) → „Ungültige Anfrage.“; Rate-Limit wie
 beim Shop (6 sofort, dann 4/s pro Spieler). Alles in-memory, beim Verlassen vergessen. Tests:
-`example-server/src/test/.../demos/DemoControllersTest.kt`, `client/src/test/.../lua/DemoExtensionsTest.kt`.
+`example/server/src/test/.../demos/DemoControllersTest.kt`, `client/src/test/.../lua/DemoExtensionsTest.kt`.

@@ -149,7 +149,7 @@ Demo-Befehle werden umgezogen.
   `modRuntimeOnly` Kiln-Client + Fabric API + Fabric Language Kotlin und startet dort `runClient` (Run-Ordner
   `run/client`, Benutzer aus `clientUsername`). So bleibt Loom aus dem Plugin-Projekt heraus.
 - Im Kiln-Repo selbst ersetzt eine Dependency-Substitution (Composite Build) die Maven-Artefakte durch die lokalen
-  Projekte (`:server-api`, `:server`, `:client`), sodass `./gradlew :example-server:runServer`/`runClient` ohne
+  Projekte (`:server-api`, `:server`, `:client`), sodass `./gradlew :example:server:runServer`/`runClient` ohne
   Veröffentlichung funktionieren. `:client:runClient` bleibt zusätzlich erhalten.
 - Veröffentlichung von `protocol`, `server-api`, `server`, `client`, `gradle-plugin` über `kiln.publish`.
 
