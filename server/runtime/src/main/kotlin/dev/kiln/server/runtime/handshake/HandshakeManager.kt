@@ -44,6 +44,9 @@ class HandshakeManager(
     /** Plugin message from a client in the configuration phase (any thread). */
     fun receive(connection: PlayerConfigurationConnection, bytes: ByteArray) {
         val uuid = connection.profile.id ?: return
+        // reconfiguration of a player already on this server: the client announces itself again in case a proxy
+        // switched its backend; this server keeps the session, so the Hello is not answered
+        if (Bukkit.getPlayer(uuid) != null) return
         if (pending.size >= MAX_PENDING && !pending.containsKey(uuid)) {
             logger.warning("Too many configuring kiln clients; dropping message of ${connection.profile.name}")
             return

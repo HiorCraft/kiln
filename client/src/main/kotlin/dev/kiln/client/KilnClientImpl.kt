@@ -155,7 +155,15 @@ class KilnClientImpl(
 
         override fun isModLoaded(id: String) = FabricLoader.getInstance().isModLoaded(id)
 
+        override fun resourcesMounted(): Boolean = KilnPackSource.isMounted()
+
         override fun reloadResources(assets: Map<String, ByteArray>, done: (error: String?) -> Unit) {
+            // backend switch to a server with the same resources: keep them (a reload takes seconds)
+            if (KilnPackSource.matches(assets)) {
+                logger.info("Extension resources unchanged; no reload")
+                done(null)
+                return
+            }
             val minecraft = Minecraft.getInstance()
             KilnPackSource.set(assets)
             logger.info("Reloading resources with {} extension asset file(s)", assets.size)
@@ -226,18 +234,47 @@ class KilnClientImpl(
 
     /** Configuration phase started (also after a server-initiated reconfiguration). */
     fun onConfigurationStart(listener: ClientConfigurationPacketListenerImpl) {
-        if (isConnected) {
-            logger.debug("Reconfiguration: keeping the kiln session")
+        val current = session
+        if (isConnected && current != null) {
             // a proxy may switch the backend here: its entity ids and creative content are not ours any more
             KilnEntityTraits.CLIENT.clear()
             KilnEntityAppearances.clear()
             KilnCreativeTabs.clear()
+            // announce again: a new backend answers with Welcome (new handshake, see onConfigurationPayload); the
+            // same backend stays silent and this session goes on. Consent stays keyed by the proxy's address.
+            logger.info("Reconfiguration: announcing kiln again (proxy backend switch?)")
+            switchCandidate = Session(listener, current.server)
+            announce()
             return
         }
         resetConnection()
         val serverData = (listener as ClientCommonPacketListenerAccessor).`kiln$getServerData`()
         val minecraft = Minecraft.getInstance()
         session = Session(listener, serverKey(serverData?.ip, minecraft.isLocalServer))
+        announce()
+    }
+
+    /**
+     * A new handshake was set up during a reconfiguration while this session stays loaded until the backend answers.
+     */
+    private var switchCandidate: Session? = null
+
+    /** The new backend answered: drop the old backend's extensions and run [next] (resources stay until it decides). */
+    private fun switchSession(next: Session) {
+        logger.info("New kiln backend: unloading {} extension(s) of the previous one", session?.handshake?.items?.size ?: 0)
+        (Minecraft.getInstance().gui.screen() as? KilnScreen)?.closeSilently = true
+        ServerKeybinds.clear()
+        extensions.unloadAll()
+        KilnPostEffect.clear()
+        icons.clear()
+        session = next
+        isConnected = false
+        inPlay = false
+        sentViewport = null
+    }
+
+    /** `minecraft:register` for [KilnPayload] and the kiln Hello. */
+    private fun announce() {
         // Paper only reads plugin messages on channels the client announced; Fabric announces its configuration
         // channels only in reply to a server-side minecraft:register, which Paper does not send in this phase.
         try {
@@ -249,13 +286,17 @@ class KilnClientImpl(
     }
 
     fun onConfigurationPayload(data: ByteArray) {
-        val s = session ?: return
         val message = try {
             MessageCodec.decodeClientbound(data)
         } catch (e: ProtocolException) {
             logger.warn("Dropping invalid kiln message ({} bytes): {}", data.size, e.message)
             return
         }
+        if (message is Welcome) switchCandidate?.let { next ->
+            switchCandidate = null
+            switchSession(next)
+        }
+        val s = session ?: return
         val handshake = s.handshake
         when (message) {
             is Welcome -> handshake.onWelcome(message.protocolVersion)
@@ -297,6 +338,8 @@ class KilnClientImpl(
     // ---- play phase ---------------------------------------------------------------------------------------
 
     fun onJoin() {
+        // reconfiguration ended without a Welcome: same backend, the old session goes on
+        switchCandidate = null
         inPlay = true
         sentViewport = null
         if (isConnected) sendViewportIfChanged()
@@ -340,6 +383,7 @@ class KilnClientImpl(
         if (KilnPackSource.clear()) packReload.request()
         icons.clear()
         session = null
+        switchCandidate = null
         inPlay = false
         isConnected = false
         sentViewport = null

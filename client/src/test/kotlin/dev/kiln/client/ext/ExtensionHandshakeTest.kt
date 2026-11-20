@@ -42,6 +42,8 @@ class ExtensionHandshakeTest {
         override fun reloadResources(assets: Map<String, ByteArray>, done: (error: String?) -> Unit) { events += "reload:${assets.keys.sorted()}"; reloadDone = done }
         val mods = HashSet<String>()
         override fun isModLoaded(id: String) = id in mods
+        var mounted = false
+        override fun resourcesMounted() = mounted
     }
 
     private fun zip(id: String, padding: Int = 0): ByteArray {
@@ -391,6 +393,21 @@ class ExtensionHandshakeTest {
         runToEnd(h)
         assertEquals(Phase.DONE, h.phase)
         assertFalse(io.events.any { it.startsWith("reload") })
+    }
+
+    @Test
+    fun `resources of a previous server are dropped when the new one has none`() {
+        val io = FakeIo(trusted = true, cache = mutableMapOf("a" to a, "b" to b))
+        io.mounted = true
+        val h = ExtensionHandshake(io)
+        h.onWelcome(PROTOCOL_VERSION)
+        h.onManifest(manifest)
+        runToEnd(h)
+        assertEquals(Phase.RELOADING, h.phase)
+        assertTrue("reload:[]" in io.events, io.events.toString())
+        io.reloadDone!!(null)
+        runToEnd(h)
+        assertEquals(Phase.DONE, h.phase)
     }
 
     @Test

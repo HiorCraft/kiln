@@ -29,6 +29,14 @@ object KilnPackSource : RepositorySource {
         dev.kiln.client.entity.KilnModels.clear()
     }
 
+    fun isMounted(): Boolean = files.isNotEmpty()
+
+    /** `true` if exactly [other] is mounted (a reload would change nothing). */
+    fun matches(other: Map<String, ByteArray>): Boolean {
+        val current = files
+        return current.size == other.size && current.all { (path, bytes) -> other[path]?.contentEquals(bytes) == true }
+    }
+
     /** Removes the pack; `true` if there was one (a resource reload is due). */
     fun clear(): Boolean {
         val had = files.isNotEmpty()

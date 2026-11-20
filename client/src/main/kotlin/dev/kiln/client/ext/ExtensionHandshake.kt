@@ -56,9 +56,12 @@ class ExtensionHandshake(
         /**
          * Mounts [assets] (paths relative to `assets/` of all verified packages) as resource pack and reloads the
          * game's resources, before any extension is started; calls [done] on the client thread with `null` or a
-         * readable error. Only called when a package has assets.
+         * readable error. Called when a package has assets, or with none to drop [resourcesMounted] ones.
          */
         fun reloadResources(assets: Map<String, ByteArray>, done: (error: String?) -> Unit) = done(null)
+
+        /** `true` while resources of an earlier handshake are mounted (a backend switch behind a proxy). */
+        fun resourcesMounted(): Boolean = false
     }
 
     enum class Phase { WAIT_WELCOME, WAIT_MANIFEST, CONSENT, DOWNLOADING, LOADING, RELOADING, DONE, FAILED, DECLINED }
@@ -209,7 +212,7 @@ class ExtensionHandshake(
         if (!resourcesReady) {
             val assets = LinkedHashMap<String, ByteArray>()
             for (item in items) item.pkg?.assets?.let(assets::putAll)
-            if (assets.isEmpty()) {
+            if (assets.isEmpty() && !io.resourcesMounted()) {
                 resourcesReady = true
             } else {
                 phase = Phase.RELOADING
