@@ -22,6 +22,13 @@ interface DrawTarget {
 
     fun textWidth(text: String): Int
 
+    /** [text] in resource font [font] (`namespace:path`, checked by the caller), scaled by [scale]. */
+    fun fontText(text: String, x: Float, y: Float, color: Int, shadow: Boolean, scale: Float, font: String) =
+        scaledText(text, x, y, color, shadow, scale)
+
+    /** Width of [text] in font [font], unscaled. */
+    fun fontTextWidth(text: String, font: String): Int = textWidth(text)
+
     /** [text] word-wrapped to [width] pixels (lines without trailing spaces). */
     fun wrap(text: String, width: Int): List<String> = listOf(text)
 

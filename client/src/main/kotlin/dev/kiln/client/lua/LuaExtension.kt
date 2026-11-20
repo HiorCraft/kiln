@@ -61,6 +61,9 @@ interface ExtensionHost {
     /** Plays UI sound [name] (one of [LuaExtension.SOUNDS]) with [pitch]. */
     fun playSound(name: String, pitch: Float) {}
 
+    /** Plays sound event [id] (`namespace:path`, from extension resources) as UI sound. */
+    fun playSound(id: String, volume: Float, pitch: Float) {}
+
     /** Monotonic real time in seconds (animations). */
     fun clock(): Double = System.nanoTime() / 1e9
 
@@ -172,6 +175,21 @@ class LuaExtension(
     }
 
     private fun has(permission: String) = permission in pkg.permissions
+
+    /**
+     * [id] (`namespace:path`) of a resource this extension may use from Lua: needs `resources` and the namespace
+     * of this extension or one of its dependencies (never vanilla, kiln or unrelated extensions).
+     */
+    internal fun ownResource(id: String, what: String): String {
+        if (!has(ExtensionPermissions.RESOURCES)) throw LuaError("permission 'resources' missing: extension '${this.id}' cannot use $what")
+        val namespace = id.substringBefore(':', "")
+        val path = id.substringAfter(':', "")
+        if (namespace.isEmpty() || path.isEmpty() || !RESOURCE_PATH.matches(path)) throw LuaError("invalid $what id '${id.take(64)}' (expected namespace:path)")
+        if (namespace != this.id && namespace !in pkg.dependencies) {
+            throw LuaError("namespace '$namespace' not allowed for $what (own or dependency only)")
+        }
+        return id
+    }
 
     /**
      * Permission check of every gated API function of this extension; a Lua error unless **all** of these hold
@@ -448,6 +466,18 @@ class LuaExtension(
             net.set("channel", gated(ExtensionPermissions.CHANNELS) { args -> channel(args.checkjstring(1)) })
             api.set("net", net)
         }
+        if (has(ExtensionPermissions.RESOURCES)) {
+            val sound = LuaTable()
+            sound.set("play", gated(ExtensionPermissions.RESOURCES) { args ->
+                val id = ownResource(args.checkjstring(1), "sound")
+                val opts = args.arg(2)
+                val volume = if (opts.istable()) opts.get("volume").optdouble(1.0) else 1.0
+                val pitch = if (opts.istable()) opts.get("pitch").optdouble(1.0) else 1.0
+                playResourceSound(id, volume, pitch)
+                LuaValue.NONE
+            })
+            api.set("sound", sound)
+        }
         val itemsApi = LuaTable()
         itemsApi.set("decode", fn { args -> items.decode(args.checkjstring(1)) })
         api.set("items", itemsApi)
@@ -567,6 +597,14 @@ class LuaExtension(
             inCloseCallback = false
         }
         if (screenSession === session) screenSession = null
+    }
+
+    private fun playResourceSound(id: String, volume: Double, pitch: Double) {
+        val now = System.nanoTime()
+        while (soundTimes.isNotEmpty() && now - soundTimes.first() >= 1_000_000_000L) soundTimes.removeFirst()
+        if (soundTimes.size >= MAX_SOUNDS_PER_SECOND) return
+        soundTimes.addLast(now)
+        host.playSound(id, volume.coerceIn(0.0, 1.0).toFloat(), pitch.coerceIn(0.5, 2.0).toFloat())
     }
 
     internal fun playSound(name: String, pitch: Double) {
@@ -712,6 +750,7 @@ class LuaExtension(
         /** Seconds an extension cannot open screens after the player forced one of them shut. */
         const val FORCED_OUT_SECONDS = 10.0
         const val MAX_SOUNDS_PER_SECOND = 10
+        private val RESOURCE_PATH = Regex("[a-z0-9_./-]{1,128}")
 
         /** `kiln.ui.sound` / `s:sound` names (mapped to vanilla sound events by the runtime). */
         val SOUNDS = listOf("click", "pling", "success", "error", "page", "toast")

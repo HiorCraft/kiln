@@ -39,6 +39,8 @@ import dev.kiln.protocol.codec.MessageCodec
 import dev.kiln.server.runtime.extension.ExtensionMessenger
 import dev.kiln.server.runtime.extension.ExtensionRegistry
 import dev.kiln.server.runtime.item.CustomItemRegistry
+import dev.kiln.server.runtime.content.PostEffects
+import dev.kiln.protocol.SetPostEffect
 import dev.kiln.server.runtime.enchantment.EnchantmentHookRegistry
 import dev.kiln.server.runtime.keybind.KeybindImpl
 import dev.kiln.server.runtime.keybind.KeybindRegistry
@@ -113,6 +115,12 @@ class KilnImpl(private val plugin: KilnPlugin) : Kiln, ExtensionMessenger {
     }
 
     // ---- screens ------------------------------------------------------------------------------------------
+
+    override fun setPostEffect(player: Player, effect: Key?) {
+        PostEffects.problem(effect, extensionRegistry.all().map { it.id }.toSet())?.let { throw IllegalArgumentException(it) }
+        val session = session(player) ?: return
+        send(session, SetPostEffect(effect?.asString()))
+    }
 
     override fun openScreen(player: Player, screen: ScreenDefinition): ScreenHandle {
         val session = requireSession(player)

@@ -15,6 +15,8 @@ import dev.kiln.client.lua.PlayerSnapshot
 import dev.kiln.client.lua.ViewportInfo
 import dev.kiln.client.screen.ItemStacks
 import net.minecraft.client.resources.sounds.SimpleSoundInstance
+import net.minecraft.client.resources.sounds.SoundInstance
+import net.minecraft.sounds.SoundSource
 import net.minecraft.sounds.SoundEvents
 import net.minecraft.util.Util
 import dev.kiln.client.toast.KilnToast
@@ -315,6 +317,14 @@ class ExtensionManager(
             else -> return
         }
         minecraft.soundManager.play(sound)
+    }
+
+    override fun playSound(id: String, volume: Float, pitch: Float) {
+        val identifier = Identifier.tryParse(id) ?: return
+        minecraft.soundManager.play(
+            SimpleSoundInstance(identifier, SoundSource.MASTER, volume, pitch, SoundInstance.createUnseededRandom(), false, 0,
+                SoundInstance.Attenuation.NONE, 0.0, 0.0, 0.0, true),
+        )
     }
 
     override fun clock(): Double = Util.getNanos() / 1e9

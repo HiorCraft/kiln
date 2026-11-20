@@ -38,6 +38,7 @@ class V2Host : ExtensionHost {
     override fun extension(id: String): LuaExtension? = extensions[id]
     override fun clock(): Double = clockSeconds
     override fun playSound(name: String, pitch: Float) { sounds += name }
+    override fun playSound(id: String, volume: Float, pitch: Float) { sounds += "$id@$volume/$pitch" }
     override fun inventory(): List<InventorySlot> = inventorySlots
 
     override fun decodeItem(nbt: ByteArray): ItemRef? {
@@ -132,6 +133,8 @@ class CountingTarget : DrawTarget {
     var clips = 0
     val cursors = ArrayList<String>()
     val tooltips = ArrayList<String>()
+    val fonts = ArrayList<String>()
+    override fun fontText(text: String, x: Float, y: Float, color: Int, shadow: Boolean, scale: Float, font: String) { texts++; fonts += font }
     override fun fill(x0: Int, y0: Int, x1: Int, y1: Int, color: Int) { fills++ }
     override fun line(x1: Float, y1: Float, x2: Float, y2: Float, thickness: Float, color: Int) {}
     override fun text(text: String, x: Int, y: Int, color: Int, shadow: Boolean) { texts++ }

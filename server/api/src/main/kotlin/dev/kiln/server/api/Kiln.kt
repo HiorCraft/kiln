@@ -66,6 +66,14 @@ public interface Kiln {
         displayMillis: Int = 5_000,
     )
 
+    /**
+     * Switches [player]'s post-processing effect to [effect] (`post_effect/<path>.json` in the resources of the
+     * extension named by its namespace), or turns it off (`null`). No-op for offline players.
+     *
+     * @throws IllegalArgumentException if [effect]'s namespace is no registered extension.
+     */
+    public fun setPostEffect(player: Player, effect: Key?)
+
     // ---- keybinds -----------------------------------------------------------------------------------------
 
     /**

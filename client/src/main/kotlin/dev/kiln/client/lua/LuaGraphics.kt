@@ -86,6 +86,14 @@ class LuaGraphics(private val extension: LuaExtension) {
             val shadow = if (opts.istable() && !opts.get("shadow").isnil()) opts.get("shadow").toboolean() else true
             val scale = if (opts.istable()) opts.get("scale").optdouble(1.0) else 1.0
             if (!(scale > 0.0 && scale <= MAX_TEXT_SCALE)) throw LuaError("text scale must be in (0, $MAX_TEXT_SCALE]")
+            val font = if (opts.istable() && !opts.get("font").isnil()) extension.ownResource(opts.get("font").checkjstring(), "font") else null
+            if (font != null) {
+                // resource font (permission resources): always the float path
+                val scaled = t.fontTextWidth(text, font) * scale
+                val x = ox + a.checkdouble(2) - alignOffset(align, scaled)
+                t.fontText(text, x.toFloat(), (oy + a.checkdouble(3)).toFloat(), color, shadow, scale.toFloat(), font)
+                return@method LuaValue.valueOf(scaled)
+            }
             val width = t.textWidth(text)
             if (scale == 1.0) {
                 val x = ox + floor(a.checkdouble(2)).toInt() - alignOffset(align, width)

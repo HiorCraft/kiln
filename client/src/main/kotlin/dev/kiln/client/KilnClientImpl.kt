@@ -6,6 +6,7 @@ import dev.kiln.client.ext.ExtensionHandshake
 import dev.kiln.client.ext.ExtensionIcons
 import dev.kiln.client.ext.LoadingScreen
 import dev.kiln.client.resource.KilnPackSource
+import dev.kiln.client.resource.KilnPostEffect
 import dev.kiln.client.ext.ExtensionManager
 import dev.kiln.client.ext.ExtensionPackage
 import dev.kiln.client.ext.TrustStore
@@ -311,6 +312,7 @@ class KilnClientImpl(
         (Minecraft.getInstance().gui.screen() as? KilnScreen)?.closeSilently = true
         ServerKeybinds.clear()
         extensions.unloadAll()
+        KilnPostEffect.current = null
         // the extensions' resource pack goes with them
         if (KilnPackSource.clear()) Minecraft.getInstance().reloadResourcePacks()
         icons.clear()
@@ -359,7 +361,7 @@ class KilnClientImpl(
             }
             is ExtensionMessage -> extensions.onChannelMessage(message.channel.toString(), message.json)
             is ShowToast -> showToast(minecraft, message)
-            is SetPostEffect -> logger.debug("Post effects are not supported yet: {}", message)
+            is SetPostEffect -> KilnPostEffect.current = message.id?.let(Identifier::tryParse)
             is Welcome, is ExtensionManifest, is ExtensionChunk -> logger.debug("Ignoring {} in the play phase", message)
         }
     }

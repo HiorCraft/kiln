@@ -6,6 +6,7 @@
   "client": [
     "ClientCommonPacketListenerAccessor",
     "ClientLanguageMixin",
+    "GameRendererMixin",
     "KeyMappingAccessor",
     "KeyMappingCategoryAccessor",
     "OptionsAccessor",

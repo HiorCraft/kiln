@@ -13,6 +13,7 @@ import net.minecraft.client.renderer.RenderPipelines
 import net.minecraft.core.component.DataComponents
 import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.network.chat.Component
+import net.minecraft.network.chat.FontDescription
 import net.minecraft.network.chat.Style
 import net.minecraft.resources.Identifier
 import net.minecraft.util.FormattedCharSequence
@@ -69,6 +70,22 @@ class GuiDrawTarget(
     }
 
     override fun textWidth(text: String): Int = font.width(text)
+
+    private fun inFont(text: String, fontId: String): Component {
+        val id = Identifier.tryParse(fontId) ?: return Component.literal(text)
+        return Component.literal(text).withStyle { it.withFont(FontDescription.Resource(id)) }
+    }
+
+    override fun fontText(text: String, x: Float, y: Float, color: Int, shadow: Boolean, scale: Float, font: String) {
+        val pose = graphics.pose()
+        pose.pushMatrix()
+        pose.translate(x, y)
+        pose.scale(scale, scale)
+        graphics.text(this.font, inFont(text, font), 0, 0, color, shadow)
+        pose.popMatrix()
+    }
+
+    override fun fontTextWidth(text: String, font: String): Int = this.font.width(inFont(text, font))
 
     override fun wrap(text: String, width: Int): List<String> =
         font.splitter.splitLines(text, width, Style.EMPTY).map { it.string.trimEnd() }
