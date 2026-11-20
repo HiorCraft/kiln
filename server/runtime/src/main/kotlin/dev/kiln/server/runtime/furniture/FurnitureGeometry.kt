@@ -53,6 +53,13 @@ object FurnitureGeometry {
         Box(feet.x - half, feet.y, feet.z - half, feet.x + half, feet.y + box.height, feet.z + half)
     }
 
+    /**
+     * After leaving a seat the rider is put on top of the furniture only when they got up: not when a teleport,
+     * death or world change ended the ride (then they are elsewhere already).
+     */
+    fun shouldStandUp(alive: Boolean, sameWorld: Boolean, distanceSquared: Double): Boolean =
+        alive && sameWorld && distanceSquared <= 4.0
+
     /** Index of the unoccupied seat (world positions [seats]) closest to [point], or `null` if all are taken. */
     fun nearestFreeSeat(seats: List<Vec>, occupied: Set<Int>, point: Vec): Int? =
         seats.indices.filter { it !in occupied }.minByOrNull {

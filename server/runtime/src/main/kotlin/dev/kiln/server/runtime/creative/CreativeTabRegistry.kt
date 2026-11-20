@@ -65,7 +65,15 @@ class CreativeTabRegistry(
                 null
             }
         }
-        if (tabs.isEmpty()) return listOf(CreativeTabsMessage(true, emptyList()))
-        return tabs.mapIndexed { i, tab -> CreativeTabsMessage(i == 0, listOf(tab)) }
+        return batch(tabs)
+    }
+
+    companion object {
+        /**
+         * An empty reset first, then one entry per message: an entry that cannot be sent (too large) is skipped
+         * without the client keeping old content.
+         */
+        fun batch(tabs: List<CreativeTabData>): List<CreativeTabsMessage> =
+            listOf(CreativeTabsMessage(true, emptyList())) + tabs.map { CreativeTabsMessage(false, listOf(it)) }
     }
 }

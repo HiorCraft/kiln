@@ -65,3 +65,14 @@ class FurnitureLogicTest {
         assertEquals(null, FurnitureGeometry.nearestFreeSeat(emptyList(), emptySet(), Vec(0.0, 0.0, 0.0)))
     }
 }
+
+class StandUpTest {
+    /** After a dismount the rider stands up on the furniture only if the dismount was getting up, not a teleport/death. */
+    @Test
+    fun standUpOnlyNearTheSeat() {
+        assertTrue(FurnitureGeometry.shouldStandUp(alive = true, sameWorld = true, distanceSquared = 0.5))
+        assertFalse(FurnitureGeometry.shouldStandUp(alive = true, sameWorld = true, distanceSquared = 100.0))
+        assertFalse(FurnitureGeometry.shouldStandUp(alive = true, sameWorld = false, distanceSquared = 0.0))
+        assertFalse(FurnitureGeometry.shouldStandUp(alive = false, sameWorld = true, distanceSquared = 0.0))
+    }
+}

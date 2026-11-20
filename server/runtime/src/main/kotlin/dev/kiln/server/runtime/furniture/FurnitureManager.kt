@@ -28,6 +28,7 @@ import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
 import org.bukkit.event.block.Action
+import org.bukkit.event.block.BlockPlaceEvent
 import org.bukkit.event.entity.CreatureSpawnEvent
 import org.bukkit.event.entity.EntityDismountEvent
 import org.bukkit.event.player.PlayerInteractEntityEvent
@@ -113,8 +114,11 @@ class FurnitureManager(
 
     internal fun remove(furniture: LiveFurniture, dropItem: Boolean) {
         val chunk = furniture.location.chunk
-        writeChunk(chunk, readChunk(chunk).filterNot { it.id == furniture.id })
-        despawn(furniture)
+        val stored = readChunk(chunk)
+        // a stale handle (chunk reloaded meanwhile) or a second remove: act on what is there now, drop at most once
+        if (stored.none { it.id == furniture.id }) return
+        writeChunk(chunk, stored.filterNot { it.id == furniture.id })
+        live[furniture.id]?.let { despawn(it) }
         if (dropItem) furniture.type.definition.item?.let { furniture.location.world.dropItemNaturally(furniture.location, it.create()) }
     }
 
@@ -161,6 +165,16 @@ class FurnitureManager(
     }
 
     private fun despawn(furniture: LiveFurniture) {
+        // riders sit on separate seat entities: eject them and remove their seats
+        for ((seatId, owner) in seats.entries.toList()) {
+            if (owner !== furniture) continue
+            seats -= seatId
+            seatIndex -= seatId
+            Bukkit.getEntity(seatId)?.let { seat ->
+                seat.passengers.forEach { it.leaveVehicle() }
+                seat.remove()
+            }
+        }
         live.remove(furniture.id)
         byEntity.remove(furniture.display.uniqueId)
         furniture.display.remove()
@@ -227,7 +241,15 @@ class FurnitureManager(
     // ---- events -------------------------------------------------------------------------------------------
 
     @EventHandler
-    fun onChunkLoad(event: ChunkLoadEvent) = spawnStored(event.chunk)
+    fun onChunkLoad(event: ChunkLoadEvent) {
+        // hit boxes across a chunk border are dropped when that neighbour unloads: rebuild such furniture
+        val broken = live.values.filter { furniture -> furniture.parts.any { !it.isValid } || !furniture.display.isValid }
+        for (furniture in broken) {
+            despawn(furniture)
+            if (furniture.location.isChunkLoaded) spawn(furniture.location.world, furniture.type, furniture.stored)
+        }
+        spawnStored(event.chunk)
+    }
 
     @EventHandler
     fun onChunkUnload(event: ChunkUnloadEvent) {
@@ -247,6 +269,10 @@ class FurnitureManager(
         val target = clicked.getRelative(event.blockFace)
         if (!target.isReplaceable) return
         val player = event.player
+        if (player.gameMode == GameMode.ADVENTURE || player.gameMode == GameMode.SPECTATOR) return
+        // protection plugins (regions, spawn protection) decide through the usual block place event
+        val placeCheck = BlockPlaceEvent(target, target.state, clicked, stack, player, true, event.hand ?: EquipmentSlot.HAND)
+        if (!placeCheck.callEvent() || !placeCheck.canBuild()) return
         val origin = Vec(target.x + 0.5, target.y.toDouble(), target.z + 0.5)
         val yaw = FurnitureGeometry.snapYaw(player.location.yaw + 180f, type.definition.hitboxes.isNotEmpty())
         val boxes = FurnitureGeometry.boxes(origin, yaw, type.definition.hitboxes.map { Hitbox(it.width, it.height, Vec(it.offset.x, it.offset.y, it.offset.z), it.solid) })
@@ -314,7 +340,10 @@ class FurnitureManager(
         // after vanilla's dismount handling: remove the seat, stand the player up on the furniture
         Bukkit.getScheduler().runTask(plugin, Runnable {
             seat.remove()
-            if (player != null && player.isOnline && player.vehicle == null) player.teleport(standUpLocation(furniture, seatLocation, player))
+            if (player == null || !player.isOnline || player.vehicle != null) return@Runnable
+            val sameWorld = player.world == seatLocation.world
+            val distance = if (sameWorld) player.location.distanceSquared(seatLocation) else Double.MAX_VALUE
+            if (FurnitureGeometry.shouldStandUp(!player.isDead, sameWorld, distance)) player.teleport(standUpLocation(furniture, seatLocation, player))
         })
     }
 

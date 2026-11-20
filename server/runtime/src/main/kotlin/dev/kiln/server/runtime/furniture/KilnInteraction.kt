@@ -1,6 +1,7 @@
 package dev.kiln.server.runtime.furniture
 
 import net.minecraft.server.level.ServerPlayer
+import org.bukkit.craftbukkit.event.CraftEventFactory
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.Interaction
 import net.minecraft.world.level.Level
@@ -22,7 +23,9 @@ class KilnInteraction(
 
     override fun skipAttackInteraction(attacker: Entity): Boolean {
         if (attacker is ServerPlayer) {
-            onAttacked(attacker.bukkitEntity)
+            // same event vanilla Paper fires for interaction entities; protection plugins cancel it
+            val event = CraftEventFactory.callNonLivingEntityDamageEvent(this, attacker.damageSources().generic().eventEntityDamager(attacker), 1.0, false)
+            if (event == null || !event.isCancelled) onAttacked(attacker.bukkitEntity)
             return true
         }
         return super.skipAttackInteraction(attacker)
