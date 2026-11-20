@@ -12,6 +12,8 @@ import dev.kiln.protocol.ExtensionPermissions
 import dev.kiln.protocol.ExtensionRequest
 import dev.kiln.protocol.ExtensionsReady
 import dev.kiln.protocol.ResourceId
+import dev.kiln.protocol.SetPostEffect
+import dev.kiln.protocol.ProtocolLimits.MAX_RESOURCE_ID_LENGTH
 import dev.kiln.protocol.Hello
 import dev.kiln.protocol.Ids
 import dev.kiln.protocol.KeyPressed
@@ -82,6 +84,7 @@ public object MessageCodec {
     private const val SHOW_TOAST = 6
     private const val EXTENSION_MANIFEST = 7
     private const val EXTENSION_CHUNK = 8
+    private const val SET_POST_EFFECT = 9
 
     // ---- client -> server -----------------------------------------------------------------------------------
 
@@ -239,6 +242,11 @@ public object MessageCodec {
                 ElementCodec.writeNullableItem(w, message.icon)
                 w.varInt(message.displayMillis, 1, MAX_TOAST_MILLIS, "toast display time")
             }
+            is SetPostEffect -> {
+                w.varInt(SET_POST_EFFECT)
+                message.id?.let { requireResourceId(it) }
+                w.nullableString(message.id, MAX_RESOURCE_ID_LENGTH, "post effect")
+            }
         }
     }
 
@@ -293,11 +301,16 @@ public object MessageCodec {
                 icon = ElementCodec.readNullableItem(r),
                 displayMillis = r.varInt(1, MAX_TOAST_MILLIS, "toast display time"),
             )
+            SET_POST_EFFECT -> SetPostEffect(r.nullableString(MAX_RESOURCE_ID_LENGTH, "post effect")?.also { requireResourceId(it) })
             else -> throw ProtocolException("Unknown clientbound message type $type")
         }
     }
 
     // ---- helpers --------------------------------------------------------------------------------------------
+
+    private fun requireResourceId(id: String) {
+        if (!id.contains(':') || ResourceId.tryParse(id) == null) throw ProtocolException("Invalid resource id '$id'")
+    }
 
     private inline fun encode(maxBytes: Int, body: (ProtocolWriter) -> Unit): ByteArray {
         val writer = ProtocolWriter()

@@ -30,6 +30,7 @@ import dev.kiln.protocol.ProtocolException
 import dev.kiln.protocol.ProtocolLimits
 import dev.kiln.protocol.ResourceId
 import dev.kiln.protocol.ServerboundMessage
+import dev.kiln.protocol.SetPostEffect
 import dev.kiln.protocol.ShowToast
 import dev.kiln.protocol.UpdateScreen
 import dev.kiln.protocol.Viewport
@@ -344,6 +345,7 @@ class KilnClientImpl(
             }
             is ExtensionMessage -> extensions.onChannelMessage(message.channel.toString(), message.json)
             is ShowToast -> showToast(minecraft, message)
+            is SetPostEffect -> logger.debug("Post effects are not supported yet: {}", message)
             is Welcome, is ExtensionManifest, is ExtensionChunk -> logger.debug("Ignoring {} in the play phase", message)
         }
     }

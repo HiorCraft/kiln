@@ -121,6 +121,8 @@ class MessageCodecTest {
             )),
             ExtensionChunk("kiln_example", 0, 1, byteArrayOf(1, 2, 3)),
             ExtensionChunk("x", 7, 8, Random(1).nextBytes(ProtocolLimits.MAX_EXTENSION_CHUNK_BYTES)),
+            SetPostEffect("kiln_content:wobble"),
+            SetPostEffect(null),
         )
     }
 

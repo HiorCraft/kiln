@@ -187,3 +187,10 @@ public data class ShowToast(
  * channel and the length; both ends parse/validate it (nesting depth <= 16) and the server rate-limits it.
  */
 public data class ExtensionMessage(val channel: ResourceId, val json: String) : ServerboundMessage, ClientboundMessage
+
+/**
+ * Play phase (v6): switches the client's post-processing effect to [id] (`<namespace>:<path>`, a
+ * `post_effect/<path>.json` of a loaded extension's resources), or turns it off ([id] = `null`).
+ * The client ignores unknown effects.
+ */
+public data class SetPostEffect(val id: String?) : ClientboundMessage

@@ -10,8 +10,10 @@ package dev.kiln.protocol
  * nothing is downloaded without consent.
  * v5: [ExtensionInfo.dependencies] (manifest in dependency order), permissions `screens` and `inventory`, larger
  * clientbound [ExtensionMessage]s ([ProtocolLimits.MAX_CLIENTBOUND_EXTENSION_JSON_LENGTH]).
+ * v6: resource-pack trees in packages (`assets/<id>/…`, [AssetRules]), permission `resources`, larger packages
+ * ([ProtocolLimits.MAX_EXTENSION_PACKAGE_BYTES]), [SetPostEffect].
  */
-public const val PROTOCOL_VERSION: Int = 5
+public const val PROTOCOL_VERSION: Int = 6
 
 /** The single plugin-messaging / custom-payload channel used in both directions. */
 public const val CHANNEL: String = "kiln:main"
@@ -67,7 +69,22 @@ public object ProtocolLimits {
     public const val MAX_MANIFEST_EXTENSIONS: Int = 128
 
     /** Maximum (zipped) size of one Lua extension package, in bytes. */
-    public const val MAX_EXTENSION_PACKAGE_BYTES: Int = 4 * 1024 * 1024
+    public const val MAX_EXTENSION_PACKAGE_BYTES: Int = 32 * 1024 * 1024
+
+    /** Maximum unpacked size of one extension package (all files together), in bytes; since v6. */
+    public const val MAX_EXTENSION_UNPACKED_BYTES: Int = 64 * 1024 * 1024
+
+    /** Maximum number of files in one extension package; since v6. */
+    public const val MAX_EXTENSION_FILES: Int = 4096
+
+    /** Maximum size of one `.ogg` sound below `assets/`, in bytes. */
+    public const val MAX_SOUND_BYTES: Int = 8 * 1024 * 1024
+
+    /** Maximum size of one `.ttf`/`.otf` font below `assets/`, in bytes. */
+    public const val MAX_FONT_BYTES: Int = 4 * 1024 * 1024
+
+    /** Maximum width/height of a PNG below `assets/`, in pixels. */
+    public const val MAX_ASSET_TEXTURE_SIZE: Int = 4096
 
     /** Maximum payload of one [ExtensionChunk], in bytes. */
     public const val MAX_EXTENSION_CHUNK_BYTES: Int = 512 * 1024

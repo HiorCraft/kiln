@@ -218,8 +218,9 @@ class ExtensionHandshakeTest {
     @Test
     fun `permission rows list every permission with its state`() {
         val rows = PermissionTexts.rows(listOf("hud", "widgets"))
-        assertEquals(listOf("widgets", "keybinds", "hud", "channels", "toasts", "screens", "inventory"), rows.map { it.permission })
-        assertEquals(listOf(true, false, true, false, false, false, false), rows.map { it.requested })
+        assertEquals(listOf("widgets", "keybinds", "hud", "channels", "toasts", "screens", "inventory", "resources"), rows.map { it.permission })
+        assertEquals(listOf(true, false, true, false, false, false, false, false), rows.map { it.requested })
+        assertEquals("Ressourcen: Modelle, Texturen, Sounds, Schriften", rows.last().label)
         assertTrue(rows.all { it.label.isNotBlank() && it.label != it.permission })
         assertEquals(listOf("UI-Kit (ui_kit)", "icons"), PermissionTexts.dependencyLabels(listOf("ui_kit", "icons"), mapOf("ui_kit" to "UI-Kit")))
         assertEquals(0, PermissionTexts.dependencyHeight(0))
