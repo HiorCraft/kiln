@@ -25,6 +25,7 @@ import dev.kiln.protocol.element.TextField
 import dev.kiln.protocol.message.Viewport
 import dev.kiln.server.api.screen.Layout
 import dev.kiln.server.api.screen.TextAlign
+import dev.kiln.server.api.screen.fullscreenScreen
 import dev.kiln.server.api.screen.screen
 import net.kyori.adventure.key.Key
 import net.kyori.adventure.text.Component
@@ -198,7 +199,7 @@ class ScreenConversionTest {
 
     @Test
     fun `fullscreen roots take the viewport size`() {
-        val definition = screen(fullscreen = true) {
+        val definition = fullscreenScreen {
             text("${viewport.width}x${viewport.height}", id = "size")
             button("corner", "X", x = width - 20, y = height - 20, width = 20, height = 20)
         }
@@ -211,7 +212,6 @@ class ScreenConversionTest {
         assertTrue((converted.elements.getValue("size") as Text).text.contains("640x360"))
         // fixed screens ignore the viewport (apart from exposing it)
         assertEquals(Bounds(0, 0, 200, 100), ScreenConverter.convert(screen(200, 100) {}.render(dev.kiln.server.api.screen.Viewport(640, 360))).root.bounds)
-        assertThrows<IllegalArgumentException> { screen(fullscreen = false) {} }
     }
 
     @Test

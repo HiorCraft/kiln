@@ -6,6 +6,7 @@ import dev.kiln.server.api.screen.ScreenBuilder
 import dev.kiln.server.api.screen.ScreenDefinition
 import dev.kiln.server.api.screen.ScreenHandle
 import dev.kiln.server.api.screen.Viewport
+import dev.kiln.server.api.screen.fullscreenScreen
 import dev.kiln.server.api.screen.screen
 import net.kyori.adventure.text.Component
 import org.bukkit.entity.Player
@@ -21,9 +22,9 @@ public fun Player.openScreen(screen: ScreenDefinition): ScreenHandle = Kiln.get(
 public fun Player.openScreen(width: Int, height: Int, content: ScreenBuilder.() -> Unit): ScreenHandle =
     openScreen(screen(width, height, content))
 
-/** Opens an ad-hoc fullscreen screen; shorthand for `openScreen(screen(fullscreen = true, content))`. */
+/** Opens an ad-hoc fullscreen screen; shorthand for `openScreen(fullscreenScreen(content))`. */
 public fun Player.openFullscreen(content: ScreenBuilder.() -> Unit): ScreenHandle =
-    openScreen(screen(fullscreen = true, content))
+    openScreen(fullscreenScreen(content))
 
 /** See [Kiln.viewport]. */
 public val Player.kilnViewport: Viewport? get() = Kiln.get().viewport(this)

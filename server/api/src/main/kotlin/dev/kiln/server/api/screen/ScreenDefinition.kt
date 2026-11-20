@@ -14,7 +14,7 @@ package dev.kiln.server.api.screen
  *     button("start", "Start") { onClick { ctx -> progress = 0.1f; ctx.screen.refresh() } }
  *     onClose { ctx -> ctx.player.sendMessage("closed: ${ctx.reason}") }
  * }
- * val shop = screen(fullscreen = true) {
+ * val shop = fullscreenScreen {
  *     // width/height == viewport.width/height
  *     scrollPanel("offers", x = 10, y = 30, width = width - 20, height = height - 40) { ... }
  * }
@@ -55,10 +55,7 @@ public fun screen(width: Int, height: Int, content: ScreenBuilder.() -> Unit): S
 
 /**
  * Defines a fullscreen screen: the root is as large as the client's GUI-scaled window ([ScreenBuilder.viewport])
- * and is re-rendered automatically when that changes. `fullscreen` must be `true`; use `screen(width, height)` for
- * fixed-size screens.
+ * and is re-rendered automatically when that changes.
  */
-public fun screen(fullscreen: Boolean, content: ScreenBuilder.() -> Unit): ScreenDefinition {
-    require(fullscreen) { "Use screen(width, height) { } for fixed-size screens" }
-    return ScreenDefinition(0, 0, true, content)
-}
+public fun fullscreenScreen(content: ScreenBuilder.() -> Unit): ScreenDefinition =
+    ScreenDefinition(0, 0, true, content)

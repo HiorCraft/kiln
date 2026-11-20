@@ -34,9 +34,6 @@ public interface ScreenHandle {
      */
     public fun inputValue(elementId: String): String?
 
-    /** Alias of [inputValue], kept for text fields. */
-    public fun textValue(elementId: String): String? = inputValue(elementId)
-
     /** Closes the screen on the client; `onClose` runs with [CloseReason.SERVER]. */
     public fun close()
 }
