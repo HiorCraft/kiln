@@ -60,6 +60,12 @@ object FurnitureGeometry {
     fun shouldStandUp(alive: Boolean, sameWorld: Boolean, distanceSquared: Double): Boolean =
         alive && sameWorld && distanceSquared <= 4.0
 
+    /** Indices of [seats] a rider sits on (rider seat positions within 0.05 blocks). */
+    fun occupiedSeats(seats: List<Vec>, riders: List<Vec>): Set<Int> =
+        seats.indices.filter { i ->
+            riders.any { r -> kotlin.math.abs(r.x - seats[i].x) < 0.05 && kotlin.math.abs(r.y - seats[i].y) < 0.05 && kotlin.math.abs(r.z - seats[i].z) < 0.05 }
+        }.toSet()
+
     /** Index of the unoccupied seat (world positions [seats]) closest to [point], or `null` if all are taken. */
     fun nearestFreeSeat(seats: List<Vec>, occupied: Set<Int>, point: Vec): Int? =
         seats.indices.filter { it !in occupied }.minByOrNull {

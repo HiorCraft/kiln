@@ -34,6 +34,7 @@ import org.bukkit.event.entity.EntityDismountEvent
 import org.bukkit.event.player.PlayerInteractEntityEvent
 import org.bukkit.event.player.PlayerInteractAtEntityEvent
 import org.bukkit.event.player.PlayerInteractEvent
+import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.event.world.ChunkLoadEvent
 import org.bukkit.event.world.ChunkUnloadEvent
 import org.bukkit.inventory.EquipmentSlot
@@ -63,8 +64,8 @@ class FurnitureManager(
     private val byEntity = HashMap<UUID, LiveFurniture>()
     private val seats = HashMap<UUID, LiveFurniture>()
 
-    /** Seat entity -> index in the type's seats (occupancy). */
-    private val seatIndex = HashMap<UUID, Int>()
+    /** Live furniture per origin chunk (world + chunk key), so unloading a chunk does not scan everything. */
+    private val byChunk = HashMap<Pair<UUID, Long>, MutableSet<LiveFurniture>>()
 
     /** Tick of each player's last handled furniture interaction (one action per click). */
     private val lastInteract = HashMap<UUID, Long>()
@@ -158,6 +159,7 @@ class FurnitureManager(
         // registered before the parts enter the world: adding an entity starts tracking (PlayerTrackEntityEvent)
         // right away, and the solid trait must be known by then
         live[stored.id] = furniture
+        byChunk.getOrPut(chunkKey(stored, world)) { HashSet() } += furniture
         byEntity[display.uniqueId] = furniture
         for (part in furniture.parts) byEntity[part.uniqueId] = furniture
         for (part in parts) level.addFreshEntity(part, CreatureSpawnEvent.SpawnReason.CUSTOM)
@@ -169,13 +171,21 @@ class FurnitureManager(
         for ((seatId, owner) in seats.entries.toList()) {
             if (owner !== furniture) continue
             seats -= seatId
-            seatIndex -= seatId
             Bukkit.getEntity(seatId)?.let { seat ->
                 seat.passengers.forEach { it.leaveVehicle() }
                 seat.remove()
             }
         }
+        // players still tracking a solid box must drop its trait (a later entity may reuse the id)
+        if (furniture.solidIds.isNotEmpty()) {
+            val trackers = furniture.parts.flatMap { it.trackedBy }.toSet()
+            for (player in trackers) sendTraits(player, EntityTraitsRemove(furniture.solidIds.toList()))
+        }
         live.remove(furniture.id)
+        byChunk[chunkKey(furniture.stored, furniture.display.world)]?.let { set ->
+            set.remove(furniture)
+            if (set.isEmpty()) byChunk.remove(chunkKey(furniture.stored, furniture.display.world))
+        }
         byEntity.remove(furniture.display.uniqueId)
         furniture.display.remove()
         for (part in furniture.parts) {
@@ -198,16 +208,14 @@ class FurnitureManager(
     }
 
     /** [offset].y is the height of the sitting surface above the origin; the rider's hips end up there. */
-    internal fun seat(furniture: LiveFurniture, player: Player, offset: Vector, index: Int? = null): Boolean {
+    internal fun seat(furniture: LiveFurniture, player: Player, offset: Vector): Boolean {
         if (player.isInsideVehicle) return false
         val pos = FurnitureGeometry.rotate(Vec(offset.x, offset.y, offset.z), furniture.stored.yaw)
         val at = furniture.location.clone().add(pos.x, pos.y, pos.z)
         val seat = at.world.spawn(at, ItemDisplay::class.java) { it.isPersistent = false }
         seats[seat.uniqueId] = furniture
-        if (index != null) seatIndex[seat.uniqueId] = index
         if (!seat.addPassenger(player)) {
             seats -= seat.uniqueId
-            seatIndex -= seat.uniqueId
             seat.remove()
             return false
         }
@@ -219,10 +227,12 @@ class FurnitureManager(
         if (offsets.isEmpty()) return false
         val origin = Vec(furniture.stored.x, furniture.stored.y, furniture.stored.z)
         val positions = offsets.map { origin + FurnitureGeometry.rotate(Vec(it.x, it.y, it.z), furniture.stored.yaw) }
-        val occupied = seats.filter { it.value === furniture }.keys.mapNotNull { seatIndex[it] }.toSet()
+        // taken = a seat entity of this furniture stands there (also seats placed through Furniture.seat)
+        val riders = seats.filter { it.value === furniture }.keys.mapNotNull(Bukkit::getEntity).map { Vec(it.location.x, it.location.y, it.location.z) }
+        val occupied = FurnitureGeometry.occupiedSeats(positions, riders)
         val point = (near ?: player.location).let { Vec(it.x, it.y, it.z) }
         val index = FurnitureGeometry.nearestFreeSeat(positions, occupied, point) ?: return false
-        return seat(furniture, player, offsets[index], index)
+        return seat(furniture, player, offsets[index])
     }
 
     /**
@@ -254,9 +264,16 @@ class FurnitureManager(
     @EventHandler
     fun onChunkUnload(event: ChunkUnloadEvent) {
         val chunk = event.chunk
-        live.values.filter { it.location.world == chunk.world && it.location.blockX shr 4 == chunk.x && it.location.blockZ shr 4 == chunk.z }
-            .forEach { despawn(it) }
+        byChunk[chunk.world.uid to Chunk.getChunkKey(chunk.x, chunk.z)]?.toList()?.forEach { despawn(it) }
     }
+
+    @EventHandler
+    fun onQuit(event: PlayerQuitEvent) {
+        lastInteract -= event.player.uniqueId
+    }
+
+    private fun chunkKey(stored: StoredFurniture, world: World): Pair<UUID, Long> =
+        world.uid to Chunk.getChunkKey(kotlin.math.floor(stored.x).toInt() shr 4, kotlin.math.floor(stored.z).toInt() shr 4)
 
     /** Right click on a block with a furniture item places it on that face. */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = false)
@@ -264,8 +281,10 @@ class FurnitureManager(
         if (event.action != Action.RIGHT_CLICK_BLOCK || event.useItemInHand() == org.bukkit.event.Event.Result.DENY) return
         val stack = event.item ?: return
         val type = types.all().firstOrNull { it.definition.item?.matches(stack) == true } ?: return
-        event.isCancelled = true
         val clicked = event.clickedBlock ?: return
+        // doors, chests, levers ... keep working while holding furniture (sneak to place on them)
+        if (clicked.type.isInteractable && !event.player.isSneaking) return
+        event.isCancelled = true
         val target = clicked.getRelative(event.blockFace)
         if (!target.isReplaceable) return
         val player = event.player
@@ -276,7 +295,9 @@ class FurnitureManager(
         val origin = Vec(target.x + 0.5, target.y.toDouble(), target.z + 0.5)
         val yaw = FurnitureGeometry.snapYaw(player.location.yaw + 180f, type.definition.hitboxes.isNotEmpty())
         val boxes = FurnitureGeometry.boxes(origin, yaw, type.definition.hitboxes.map { Hitbox(it.width, it.height, Vec(it.offset.x, it.offset.y, it.offset.z), it.solid) })
-        if (FurnitureGeometry.blocked(boxes) { x, y, z -> target.world.getBlockAt(x, y, z).isCollidable }) return
+        // any block that is not replaceable (also flowers, torches) and any entity (other furniture, players) is in the way
+        if (FurnitureGeometry.blocked(boxes) { x, y, z -> target.world.getBlockAt(x, y, z).let { !it.isReplaceable } }) return
+        if (boxes.any { b -> target.world.getNearbyEntities(org.bukkit.util.BoundingBox(b.minX, b.minY, b.minZ, b.maxX, b.maxY, b.maxZ)) { it !is org.bukkit.entity.Item }.isNotEmpty() }) return
         place(type, Location(target.world, origin.x, origin.y, origin.z), yaw)
         if (player.gameMode != GameMode.CREATIVE) stack.amount -= 1
     }
@@ -334,9 +355,12 @@ class FurnitureManager(
     fun onDismount(event: EntityDismountEvent) {
         val seat = event.dismounted
         val furniture = seats.remove(seat.uniqueId) ?: return
-        seatIndex -= seat.uniqueId
         val player = event.entity as? Player
         val seatLocation = seat.location
+        if (!plugin.isEnabled) {
+            seat.remove() // Kiln shuts down: no task can be scheduled any more
+            return
+        }
         // after vanilla's dismount handling: remove the seat, stand the player up on the furniture
         Bukkit.getScheduler().runTask(plugin, Runnable {
             seat.remove()
