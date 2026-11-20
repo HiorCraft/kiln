@@ -60,15 +60,21 @@ tasks.test {
 }
 
 
-// ---- proxy network: Velocity (25565) -> survival (25566) and games (25567) ------------------------------------
+// ---- proxy network: Velocity (25565) -> survival (25566), games (25567), embedded (25568) ----------------------
 // Start each in its own terminal: runSurvival, runGames, runVelocity; then runClient -PquickPlay (joins the proxy).
 // Switch backends in game with /server survival and /server games.
 
-/** Backends of the dev network: name -> (port, demos of the example plugin). */
+/** A backend of the dev network: port, demos of the example plugin, Kiln shaded into a host plugin or standalone. */
+data class Backend(val port: Int, val demos: List<String>, val embedded: Boolean = false)
+
 val backends = linkedMapOf(
-    "survival" to (25566 to listOf("shop", "content", "factory")),
-    "games" to (25567 to listOf("warps", "quests", "bestenliste")),
+    "survival" to Backend(25566, listOf("shop", "content", "factory")),
+    "games" to Backend(25567, listOf("warps", "quests", "bestenliste")),
+    // Kiln inside a host plugin (kiln-server-embedded, like Surf-API) instead of the Kiln plugin
+    "embedded" to Backend(25568, listOf("content", "fabrik"), embedded = true),
 )
+evaluationDependsOn(":example:embedded-host")
+val embeddedHostJar = project(":example:embedded-host").tasks.named<Jar>("shadowJar").flatMap { it.archiveFile }
 val networkDir = rootProject.layout.projectDirectory.dir("run/network")
 
 /** The secret Velocity and the backends share for modern forwarding (created once). */
@@ -104,12 +110,12 @@ fun enableVelocityForwarding(file: File, secret: String) {
 }
 
 for ((name, backend) in backends) {
-    val (port, demos) = backend
+    val (port, demos) = backend.port to backend.demos
     tasks.register<xyz.jpenilla.runpaper.task.RunServer>("run${name.replaceFirstChar { it.uppercase() }}") {
         group = "kiln network"
-        description = "Paper backend '$name' (port $port, demos $demos) behind runVelocity"
+        description = "Paper backend '$name' (port $port, demos $demos${if (backend.embedded) ", Kiln embedded" else ""}) behind runVelocity"
         minecraftVersion(kiln.minecraftVersion.get())
-        pluginJars.from(kiln.serverJar)
+        pluginJars.from(if (backend.embedded) embeddedHostJar else kiln.serverJar)
         pluginJars.from(tasks.shadowJar.flatMap { it.archiveFile })
         val dir = networkDir.dir(name)
         runDirectory.set(dir)
@@ -139,7 +145,7 @@ tasks.runVelocity {
     runDirectory.set(dir)
     doFirst {
         forwardingSecret()
-        val servers = backends.entries.map { (n, b) -> "$n = \"127.0.0.1:${b.first}\"" }
+        val servers = backends.entries.map { (n, b) -> "$n = \"127.0.0.1:${b.port}\"" }
         dir.asFile.resolve("velocity.toml").takeIf { !it.exists() }?.writeText(
             (listOf(
                 "config-version = \"2.7\"",

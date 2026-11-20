@@ -144,6 +144,7 @@ Two backends with different extensions behind Velocity, each in its own terminal
 ```
 ./gradlew :example:server:runSurvival   # port 25566: shop, content, factory
 ./gradlew :example:server:runGames      # port 25567: quests, warps, bestenliste
+./gradlew :example:server:runEmbedded   # port 25568: fabrik, content; Kiln shaded into a host plugin
 ./gradlew :example:server:runVelocity   # port 25565, modern forwarding
 ./gradlew :example:server:runClient -PquickPlay
 ```
@@ -152,6 +153,35 @@ Switch with `/server games` and `/server survival`: on every backend switch the 
 new backend runs the handshake (consent only for new permissions, keyed by the proxy address) and the extensions
 and resources of the previous backend are replaced. Which demos a backend runs is `demos` in
 `plugins/KilnExample/config.yml` (empty = all).
+
+## Embedding Kiln in another plugin
+
+`kiln-server` is the standalone Paper plugin (with Kotlin). `kiln-server-embedded` is the same runtime for shading
+into a plugin that already ships Kotlin (e.g. Surf-API): runtime, API and protocol, **no Kotlin, no plugin
+descriptor, not relocated** (the API must stay `dev.kiln.*` for the plugins that use it).
+
+```kotlin
+// build.gradle.kts of the host
+dependencies {
+    implementation("dev.kiln:kiln-server-embedded:<version>") // shaded, do not relocate dev.kiln
+}
+paper {
+    provides = listOf("Kiln")          // plugins that depend on "Kiln" load against the host
+    bootstrapper = "..."               // the host needs one: bootstrap dependencies on Kiln resolve only there
+}
+
+// the host plugin
+override fun onLoad() { KilnEmbedded.load(this) }                     // registers the Kiln service
+override fun onEnable() { KilnEmbedded.enable(this, KilnSettings()) } // false (logged) if Kiln cannot run here
+override fun onDisable() { KilnEmbedded.disable() }
+```
+
+`KilnSettings` holds what the standalone plugin reads from its `config.yml` (`KilnSettings.from(section)` reads the
+same keys from any config section); Lua extension folders come from `<host data folder>/kiln/extensions` unless
+`enable` gets another path. Kiln checks at start that the server runs the Minecraft version its server internals were
+built for and that the host's Kotlin is at least the version Kiln was compiled with; if another plugin already
+provides Kiln (the standalone plugin), the embedded copy stays off. `example/embedded-host` is such a host; the dev
+network runs it as backend `embedded` (`./gradlew :example:server:runEmbedded`, `/server embedded`).
 
 ## Using Kiln in your plugin
 

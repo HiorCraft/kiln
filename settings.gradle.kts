@@ -28,4 +28,5 @@ include(
     "server:runtime",
     "client",
     "example:server",
+    "example:embedded-host",
 )

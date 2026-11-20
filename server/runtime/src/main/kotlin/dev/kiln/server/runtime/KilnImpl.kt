@@ -65,19 +65,24 @@ import java.util.logging.Level
  * Implementation of [Kiln]. All state is mutated on the main thread (Paper delivers plugin messages there;
  * should it not, messages are re-dispatched via the player's entity scheduler).
  */
-class KilnImpl(private val plugin: KilnPlugin) : Kiln, ExtensionMessenger {
+class KilnImpl(
+    /** The plugin Kiln runs in (standalone [KilnPlugin] or a host that embeds it): owner of tasks and messages. */
+    private val plugin: Plugin,
+    private val log: java.util.logging.Logger,
+    private val settings: () -> KilnSettings,
+) : Kiln, ExtensionMessenger {
     private val sessions = HashMap<UUID, PlayerSession>()
     private val rateLimiters = ConcurrentHashMap<UUID, RateLimiter>()
     private val extensionRateLimiters = HashMap<UUID, RateLimiter>()
     private var keybindsDirty = false
 
-    val extensionRegistry = ExtensionRegistry(plugin.logger, this)
+    val extensionRegistry = ExtensionRegistry(log, this)
 
-    override val items: CustomItemRegistry = CustomItemRegistry(plugin.logger, extensionRegistry::impl)
+    override val items: CustomItemRegistry = CustomItemRegistry(log, extensionRegistry::impl)
 
-    override val enchantments: EnchantmentHookRegistry = EnchantmentHookRegistry(plugin.logger)
+    override val enchantments: EnchantmentHookRegistry = EnchantmentHookRegistry(log)
 
-    override val creativeTabs: CreativeTabRegistry = CreativeTabRegistry(plugin.logger, extensionRegistry::impl, ::scheduleCreativeBroadcast)
+    override val creativeTabs: CreativeTabRegistry = CreativeTabRegistry(log, extensionRegistry::impl, ::scheduleCreativeBroadcast)
     private var creativeDirty = false
 
     init {
@@ -89,11 +94,11 @@ class KilnImpl(private val plugin: KilnPlugin) : Kiln, ExtensionMessenger {
         }
     }
 
-    override val entities: CustomEntityManager = CustomEntityManager(plugin.logger, extensionRegistry::impl) { player, message ->
+    override val entities: CustomEntityManager = CustomEntityManager(log, extensionRegistry::impl) { player, message ->
         session(player)?.let { send(it, message) }
     }
 
-    override val furniture: FurnitureManager = FurnitureManager(plugin, plugin.logger, extensionRegistry::impl) { player, message ->
+    override val furniture: FurnitureManager = FurnitureManager(plugin, log, extensionRegistry::impl) { player, message ->
         session(player)?.let { send(it, message as ClientboundMessage) }
     }
 
@@ -102,10 +107,10 @@ class KilnImpl(private val plugin: KilnPlugin) : Kiln, ExtensionMessenger {
         onChanged = ::scheduleKeybindBroadcast,
     )
 
-    private val logger get() = plugin.logger
+    private val logger get() = log
 
     fun debug(message: () -> String) {
-        if (plugin.debug) logger.info("[debug] ${message()}")
+        if (settings().debug) logger.info("[debug] ${message()}")
     }
 
     // ---- sessions -----------------------------------------------------------------------------------------
@@ -276,10 +281,10 @@ class KilnImpl(private val plugin: KilnPlugin) : Kiln, ExtensionMessenger {
 
     /** Entry point from the plugin messenger: rate limit, decode, then handle on the player's thread. */
     fun receive(player: Player, bytes: ByteArray) {
-        val limiter = rateLimiters.computeIfAbsent(player.uniqueId) { RateLimiter(plugin.rateLimitPerSecond) }
+        val limiter = rateLimiters.computeIfAbsent(player.uniqueId) { RateLimiter(settings().rateLimitPerSecond) }
         val accepted = synchronized(limiter) { limiter.tryAcquire() }
         if (!accepted) {
-            if (limiter.rejectedInWindow == 1) logger.warning("${player.name} exceeds ${plugin.rateLimitPerSecond} kiln messages/s; dropping")
+            if (limiter.rejectedInWindow == 1) logger.warning("${player.name} exceeds ${settings().rateLimitPerSecond} kiln messages/s; dropping")
             return
         }
         val message = try {
@@ -409,10 +414,10 @@ class KilnImpl(private val plugin: KilnPlugin) : Kiln, ExtensionMessenger {
 
     private fun onExtension(session: PlayerSession, message: ExtensionMessage) {
         val player = session.player
-        val limiter = extensionRateLimiters.getOrPut(player.uniqueId) { RateLimiter(plugin.extensionMessagesPerSecond) }
+        val limiter = extensionRateLimiters.getOrPut(player.uniqueId) { RateLimiter(settings().extensionMessagesPerSecond) }
         if (!limiter.tryAcquire()) {
             if (limiter.rejectedInWindow == 1) {
-                logger.warning("${player.name} exceeds ${plugin.extensionMessagesPerSecond} extension messages/s; dropping")
+                logger.warning("${player.name} exceeds ${settings().extensionMessagesPerSecond} extension messages/s; dropping")
             }
             return
         }
