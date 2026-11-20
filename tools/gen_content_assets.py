@@ -140,11 +140,31 @@ def lang() -> None:
     })
 
 
+def cube(frm, to, texture="#wood"):
+    faces = {f: {"texture": texture} for f in ("north", "south", "east", "west", "up", "down")}
+    return {"from": frm, "to": to, "faces": faces}
+
+
+def furniture_models() -> None:
+    # block-sized item models (rendered by an item display at the furniture origin + 0.5); front = south (+z)
+    wood = {"wood": "minecraft:block/oak_planks", "particle": "minecraft:block/oak_planks"}
+    legs = [cube([x, 0, z], [x + 2, 8, z + 2]) for x, z in [(2, 2), (12, 2), (2, 12), (12, 12)]]
+    chair = legs + [cube([1, 8, 1], [15, 10, 15]), cube([1, 10, 1], [15, 22, 3])]
+    table_legs = [cube([x, 0, z], [x + 2, 14, z + 2]) for x, z in [(1, 1), (13, 1), (1, 13), (13, 13)]]
+    table = table_legs + [cube([0, 14, 0], [16, 16, 16])]
+    bench_legs = [cube([x, 0, z], [x + 2, 6, z + 2]) for x, z in [(-7, 3), (21, 3), (-7, 11), (21, 11)]]
+    bench = bench_legs + [cube([-8, 6, 2], [24, 8, 14])]
+    for name, elements in [("chair", chair), ("table", table), ("bench", bench)]:
+        write_json(f"models/item/{name}.json", {"textures": wood, "elements": elements})
+        write_json(f"items/{name}.json", {"model": {"type": "minecraft:model", "model": f"{NS}:item/{name}"}})
+
+
 if __name__ == "__main__":
     ruby_texture()
     rune_font()
     chime()
     models()
     post_effect()
+    furniture_models()
     lang()
     print("wrote", ROOT)

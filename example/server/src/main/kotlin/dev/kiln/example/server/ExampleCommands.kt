@@ -22,7 +22,7 @@ internal object ExampleCommands {
         "warps" to ("Warp menu (Lua extension warps, key V)" to "/warps"),
         "bestenliste" to ("Leaderboard (Lua extension bestenliste, key N)" to "/bestenliste"),
         "profil" to ("Settings and profile (Lua extension profil, key M)" to "/profil"),
-        "kiln" to ("Content demo: custom item, sound, font, enchantment, post effect" to "/kiln give ruby|lifesteal_sword | font | effect [ruby_vision|off]"),
+        "kiln" to ("Content demo: custom item, sound, font, enchantment, post effect" to "/kiln give ruby|lifesteal_sword|chair|table|bench | font | effect [ruby_vision|off]"),
     )
 
     fun register(plugin: JavaPlugin, label: String, executor: TabExecutor) {

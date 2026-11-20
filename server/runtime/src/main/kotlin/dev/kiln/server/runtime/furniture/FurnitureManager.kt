@@ -131,20 +131,23 @@ class FurnitureManager(
             it.setItemStack(ItemType.PAPER.createItemStack().apply { setData(DataComponentTypes.ITEM_MODEL, type.model) })
         }
         val level = (world as CraftWorld).handle
+        lateinit var furniture: LiveFurniture
         val parts = definition.hitboxes.map { box ->
             val feet = FurnitureGeometry.position(origin, stored.yaw, Hitbox(box.width, box.height, Vec(box.offset.x, box.offset.y, box.offset.z), box.solid))
-            val entity = KilnInteraction(level, box.solid)
+            val entity = KilnInteraction(level, box.solid) { player -> onAttacked(furniture, player) }
             entity.setPos(feet.x, feet.y, feet.z)
             entity.setWidth(box.width.toFloat())
             entity.setHeight(box.height.toFloat())
             entity.bukkitEntity.isPersistent = false
-            level.addFreshEntity(entity, CreatureSpawnEvent.SpawnReason.CUSTOM)
             entity
         }
-        val furniture = LiveFurniture(this, type, stored, display, parts.map { it.bukkitEntity }, parts.filter { it.solid }.map { it.id }.toSet())
+        furniture = LiveFurniture(this, type, stored, display, parts.map { it.bukkitEntity }, parts.filter { it.solid }.map { it.id }.toSet())
+        // registered before the parts enter the world: adding an entity starts tracking (PlayerTrackEntityEvent)
+        // right away, and the solid trait must be known by then
         live[stored.id] = furniture
         byEntity[display.uniqueId] = furniture
         for (part in furniture.parts) byEntity[part.uniqueId] = furniture
+        for (part in parts) level.addFreshEntity(part, CreatureSpawnEvent.SpawnReason.CUSTOM)
         return furniture
     }
 
@@ -213,15 +216,21 @@ class FurnitureManager(
         if (player.gameMode != GameMode.CREATIVE) stack.amount -= 1
     }
 
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
-    fun onAttack(event: PrePlayerAttackEntityEvent) {
-        val furniture = byEntity[event.attacked.uniqueId] ?: return
-        event.isCancelled = true
-        val player = event.player
+    /** Left click on a hit box (reported by [KilnInteraction]): `onBreak`, by default remove (+ drop in survival). */
+    private fun onAttacked(furniture: LiveFurniture, player: Player) {
+        if (furniture.id !in live) return
         hook(furniture, "onBreak") {
             val handler = furniture.type.definition.onBreak
             if (handler != null) handler(player, furniture) else furniture.remove(dropItem = player.gameMode != GameMode.CREATIVE)
         }
+    }
+
+    /** Left click on the model (item display). */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    fun onAttack(event: PrePlayerAttackEntityEvent) {
+        val furniture = byEntity[event.attacked.uniqueId] ?: return
+        event.isCancelled = true
+        onAttacked(furniture, event.player)
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
