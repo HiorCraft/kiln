@@ -15,6 +15,7 @@ class KilnGradlePluginTest {
         dir.resolve("build.gradle.kts").writeText(
             """
             plugins { id("dev.kiln") }
+            repositories { mavenCentral() }
             version = "1.0"
             paper { main = "x.Main" }
             $extra
@@ -57,6 +58,31 @@ class KilnGradlePluginTest {
         assertTrue(script.isFile)
         assertTrue(script.readText().contains("client.jar"), script.readText())
         assertTrue(dir.resolve("build/kiln/client/settings.gradle.kts").isFile)
+    }
+
+    @Test
+    fun clientProjectFollowsLateConfiguration() {
+        // the task is realised before kiln { } is configured: its values must still be the final ones
+        project("""
+            tasks.named("prepareKilnClient").get()
+            kiln { minecraftVersion.set("26.9"); clientJar.set(file("client.jar")) }
+        """.trimIndent())
+        dir.resolve("client.jar").writeText("")
+        run("prepareKilnClient")
+        val script = dir.resolve("build/kiln/client/build.gradle.kts").readText()
+        assertTrue(script.contains("com.mojang:minecraft:26.9"), script)
+    }
+
+    @Test
+    fun shadowJarLeavesKotlinToKiln() {
+        project("""
+            val shadow = tasks.register<Jar>("shadowJar")
+            tasks.register("printShadowExcludes") {
+                doLast { println("EXCLUDES=" + shadow.get().excludes) }
+            }
+        """.trimIndent())
+        val out = run("printShadowExcludes").output
+        assertTrue(out.contains("kotlin/**"), out)
     }
 
     @Test

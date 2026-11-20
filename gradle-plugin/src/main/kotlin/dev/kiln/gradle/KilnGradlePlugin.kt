@@ -10,6 +10,9 @@ import xyz.jpenilla.runpaper.task.RunServer
  * `dev.kiln`: a Paper plugin that uses the Kiln server API.
  *
  * - `compileOnly` paper-api, `dev.kiln:kiln-server-api` and the Kotlin stdlib (Kiln provides it at runtime);
+ * - repositories are the project's job (mavenCentral, PaperMC and where Kiln is published, e.g. mavenLocal), so
+ *   builds that declare repositories only in settings (`RepositoriesMode.FAIL_ON_PROJECT_REPOS`) work;
+ * - a `shadowJar` never contains the Kotlin stdlib (Kiln provides it);
  * - `paper-plugin.yml` (plugin-yml) with Kiln as required server dependency, loaded before and sharing its classpath;
  * - `runServer` (run-paper): Paper with the Kiln plugin and this plugin, offline mode for the dev client;
  * - `runClient`: Minecraft with Fabric and the Kiln runtime (see [ClientRun]).
@@ -34,16 +37,16 @@ class KilnGradlePlugin : Plugin<Project> {
             extensions.configure(PaperPluginDescription::class.java) {
                 if (apiVersion == null) apiVersion = kiln.minecraftVersion.get()
             }
-            if (repositories.isEmpty()) {
-                repositories.mavenCentral()
-                repositories.maven { setUrl("https://repo.papermc.io/repository/maven-public/"); name = "PaperMC" }
-                repositories.mavenLocal()
-            }
         }
 
         project.dependencies.addProvider("compileOnly", kiln.paperVersion.map { "io.papermc.paper:paper-api:$it" })
         project.dependencies.addProvider("compileOnly", kiln.version.map { "dev.kiln:kiln-server-api:$it" })
         project.dependencies.add("compileOnly", "org.jetbrains.kotlin:kotlin-stdlib:${versions.kotlin}")
+
+        // Kiln provides the Kotlin stdlib at runtime: a shaded copy would clash with it
+        project.tasks.withType(org.gradle.api.tasks.bundling.Jar::class.java).matching { it.name == "shadowJar" }.configureEach {
+            exclude("kotlin/**", "META-INF/kotlin-stdlib*.kotlin_module")
+        }
 
         project.extensions.configure(PaperPluginDescription::class.java) {
             serverDependencies.register("Kiln") {

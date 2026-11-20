@@ -34,7 +34,9 @@ internal object ClientRun {
             quickPlay.set(kiln.quickPlay)
             gameDirectory.set(kiln.runDirectory.dir("client"))
             outputDirectory.set(project.layout.buildDirectory.dir("kiln/client"))
-            this.versions = versions.copy(kiln = kiln.version.get(), minecraft = kiln.minecraftVersion.get())
+            baseVersions = versions
+            kilnVersion.set(kiln.version)
+            minecraftVersion.set(kiln.minecraftVersion)
         }
         project.tasks.register("runClient", GradleBuild::class.java) {
             group = "kiln"
@@ -67,11 +69,18 @@ abstract class PrepareKilnClient : DefaultTask() {
     @get:OutputDirectory
     abstract val outputDirectory: DirectoryProperty
 
+    /** Loader/API versions this plugin was built with (constant). */
     @get:Internal
-    internal lateinit var versions: KilnVersions
+    internal lateinit var baseVersions: KilnVersions
 
     @get:Input
-    val versionText: String get() = versions.toString() + gameDirectory.get().asFile.absolutePath
+    abstract val kilnVersion: Property<String>
+
+    @get:Input
+    abstract val minecraftVersion: Property<String>
+
+    @get:Input
+    val inputText: String get() = baseVersions.toString() + gameDirectory.get().asFile.absolutePath
 
     @TaskAction
     fun write() {
@@ -80,6 +89,7 @@ abstract class PrepareKilnClient : DefaultTask() {
         val out = outputDirectory.get().asFile
         out.mkdirs()
         out.resolve("settings.gradle.kts").writeText(ClientRunProject.settings())
+        val versions = baseVersions.copy(kiln = kilnVersion.get(), minecraft = minecraftVersion.get())
         out.resolve("build.gradle.kts").writeText(ClientRunProject.build(versions, jar, username.get(), gameDirectory.get().asFile, quickPlay.orNull))
     }
 }

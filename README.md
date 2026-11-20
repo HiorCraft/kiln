@@ -153,6 +153,13 @@ plugins {
     id("dev.kiln") version "0.1.0-SNAPSHOT"
 }
 
+// the plugin adds no repositories (works with RepositoriesMode.FAIL_ON_PROJECT_REPOS); add them here or in settings
+repositories {
+    mavenCentral()
+    maven("https://repo.papermc.io/repository/maven-public/")
+    mavenLocal()
+}
+
 paper { main = "com.example.MyPlugin" }
 kiln { clientUsername = "Dev" }   // optional: version, serverPort, serverJar, clientJar, runDirectory
 ```
