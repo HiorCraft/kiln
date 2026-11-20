@@ -215,7 +215,14 @@ class FurnitureManager(
 
     /** [offset].y is the height of the sitting surface above the origin; the rider's hips end up there. */
     internal fun seat(furniture: LiveFurniture, player: Player, offset: Vector): Boolean {
-        if (player.isInsideVehicle) return false
+        // already on one of our seats: switch (the old seat goes without standing up); other vehicles stay
+        val current = player.vehicle
+        if (current != null) {
+            if (current.uniqueId !in seats) return false
+            seats -= current.uniqueId
+            player.leaveVehicle()
+            current.remove()
+        }
         val pos = FurnitureGeometry.rotate(Vec(offset.x, offset.y, offset.z), furniture.stored.yaw)
         val at = furniture.location.clone().add(pos.x, pos.y, pos.z)
         val seat = at.world.spawn(at, ItemDisplay::class.java) { it.isPersistent = false }
@@ -233,11 +240,16 @@ class FurnitureManager(
         if (offsets.isEmpty()) return false
         val origin = Vec(furniture.stored.x, furniture.stored.y, furniture.stored.z)
         val positions = offsets.map { origin + FurnitureGeometry.rotate(Vec(it.x, it.y, it.z), furniture.stored.yaw) }
-        // taken = a seat entity of this furniture stands there (also seats placed through Furniture.seat)
-        val riders = seats.filter { it.value === furniture }.keys.mapNotNull(Bukkit::getEntity).map { Vec(it.location.x, it.location.y, it.location.z) }
+        // taken = a seat entity of this furniture stands there (also seats placed through Furniture.seat); the
+        // clicking player's own seat does not count, so a click elsewhere moves them
+        val riders = seats.filter { it.value === furniture && it.key != player.vehicle?.uniqueId }.keys
+            .mapNotNull(Bukkit::getEntity).map { Vec(it.location.x, it.location.y, it.location.z) }
         val occupied = FurnitureGeometry.occupiedSeats(positions, riders)
         val point = (near ?: player.location).let { Vec(it.x, it.y, it.z) }
         val index = FurnitureGeometry.nearestFreeSeat(positions, occupied, point) ?: return false
+        // clicking the seat you sit on changes nothing
+        val own = player.vehicle?.takeIf { seats[it.uniqueId] === furniture }?.location
+        if (own != null && FurnitureGeometry.occupiedSeats(listOf(positions[index]), listOf(Vec(own.x, own.y, own.z))).isNotEmpty()) return true
         return seat(furniture, player, offsets[index])
     }
 
