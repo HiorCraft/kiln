@@ -15,6 +15,7 @@ import dev.kiln.server.api.screen.ScreenHandle
 import dev.kiln.server.api.screen.TextAlign
 import dev.kiln.server.api.screen.screen
 import dev.kiln.example.server.demos.LuaDemo
+import dev.kiln.example.server.demos.content.ContentDemo
 import dev.kiln.example.server.demos.bestenliste.LeaderboardDemo
 import dev.kiln.example.server.demos.fabrik.FactoryDemo
 import dev.kiln.example.server.demos.profil.ProfileDemo
@@ -111,6 +112,8 @@ class ExamplePlugin : JavaPlugin(), Listener, TabExecutor {
             "profil" to ::ProfileDemo,
         )
         for ((command, create) in demos) ExampleCommands.register(this, command, create(this))
+        // resources from extension kiln_content: custom item, sound, font, enchantment, post effect
+        ExampleCommands.register(this, "kiln", ContentDemo(this))
         server.pluginManager.registerEvents(this, this)
 
         // live updates: the factory runs once per second and every open GUI is re-rendered

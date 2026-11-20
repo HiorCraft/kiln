@@ -1,0 +1,7 @@
+{
+  "id": "kiln_content",
+  "version": "1.0.0",
+  "name": "Kiln Inhalte",
+  "main": "main.lua",
+  "permissions": ["hud", "resources"]
+}

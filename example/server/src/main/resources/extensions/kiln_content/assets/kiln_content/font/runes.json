@@ -1,0 +1,22 @@
+{
+  "providers": [
+    {
+      "type": "space",
+      "advances": {
+        " ": 4
+      }
+    },
+    {
+      "type": "bitmap",
+      "file": "kiln_content:font/runes.png",
+      "ascent": 7,
+      "height": 8,
+      "chars": [
+        "ABCDEFGH",
+        "IJKLMNOP",
+        "QRSTUVWX",
+        "YZ\u0000\u0000\u0000\u0000\u0000\u0000"
+      ]
+    }
+  ]
+}

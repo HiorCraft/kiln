@@ -1,0 +1,8 @@
+{
+  "ruby_chime": {
+    "subtitle": "kiln_content.subtitle.ruby_chime",
+    "sounds": [
+      "kiln_content:ruby_chime"
+    ]
+  }
+}

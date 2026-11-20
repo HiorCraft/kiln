@@ -28,6 +28,8 @@ dependencies {
 paper {
     name = "KilnExample"
     main = "dev.kiln.example.server.ExamplePlugin"
+    // registers the custom enchantment of the content demo
+    bootstrapper = "dev.kiln.example.server.ExampleBootstrap"
     description = "Demo plugin for the kiln server API (factory GUI, keybinds, Lua extensions, market)"
 }
 

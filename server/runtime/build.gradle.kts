@@ -21,6 +21,7 @@ dependencies {
 paper {
     name = "Kiln"
     main = "dev.kiln.server.runtime.KilnPlugin"
+    bootstrapper = "dev.kiln.server.runtime.KilnBootstrapper"
     load = BukkitPluginDescription.PluginLoadOrder.STARTUP
     description = "Server runtime of kiln (server-described GUIs, keybinds and Lua extensions for Fabric clients)"
 }

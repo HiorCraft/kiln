@@ -21,6 +21,12 @@ class PluginYmlTest {
         assertTrue(Regex("(?m)^api-version: [\"']?26[.]3[\"']?$").containsMatchIn(yaml), yaml)
     }
 
+    /** Plugins whose bootstrappers use KilnBootstrap declare Kiln as bootstrap dependency; Paper needs a bootstrapper. */
+    @Test
+    fun hasBootstrapper() {
+        assertTrue(Regex("(?m)^bootstrapper: [\"']?dev[.]kiln[.]server[.]runtime[.]KilnBootstrapper[\"']?$").containsMatchIn(yaml), yaml)
+    }
+
     @Test
     fun legacyPluginYmlIsGone() {
         assertNull(javaClass.classLoader.getResource("plugin.yml"))

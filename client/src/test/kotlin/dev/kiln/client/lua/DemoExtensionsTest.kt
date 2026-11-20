@@ -514,4 +514,29 @@ class DemoExtensionsTest {
         assertNull(host.shown)
         assertTrue(ext.alive, host.failures.toString())
     }
+
+    /** The resource demo as the client reads it from the wire: valid assets, own namespace, HUD label in the rune font. */
+    @Test
+    fun `kiln_content - assets pass the client rules and the HUD uses the rune font`() {
+        val dir = extensionDir("kiln_content")
+        val out = java.io.ByteArrayOutputStream()
+        java.util.zip.ZipOutputStream(out).use { zip ->
+            for (file in dir.walkTopDown().filter { it.isFile }.sortedBy { it.path }) {
+                zip.putNextEntry(java.util.zip.ZipEntry(file.relativeTo(dir).invariantSeparatorsPath))
+                zip.write(file.readBytes())
+            }
+        }
+        val pkg = ExtensionPackage.read(out.toByteArray(), "kiln_content")
+        assertTrue("resources" in pkg.permissions)
+        for (asset in listOf("kiln_content/items/ruby.json", "kiln_content/models/item/ruby.json", "kiln_content/textures/item/ruby.png",
+            "kiln_content/sounds.json", "kiln_content/sounds/ruby_chime.ogg", "kiln_content/font/runes.json",
+            "kiln_content/post_effect/ruby_vision.json", "kiln_content/lang/de_de.json")) {
+            assertTrue(asset in pkg.assets, "missing $asset in ${pkg.assets.keys}")
+        }
+        val host = V2Host()
+        val ext = host.load(pkg)
+        val target = CountingTarget()
+        ext.renderHud(ext.hudLayers.single(), target, 0, 0)
+        assertEquals(listOf("kiln_content:runes"), target.fonts, host.failures.toString())
+    }
 }
