@@ -90,9 +90,15 @@ class FurnitureManager(
         types.removeOwner(plugin.name)
     }
 
+    /** The extension [namespace] was unregistered: its furniture types go (placed furniture stays stored). */
+    fun removeNamespace(namespace: String) {
+        val removed = types.removeNamespace(namespace).toSet()
+        live.values.filter { it.type in removed }.forEach { despawn(it) }
+    }
+
     internal fun unregister(type: FurnitureTypeImpl) {
         live.values.filter { it.type === type }.forEach { despawn(it) }
-        types.remove(type.key)
+        types.remove(type.key, type)
     }
 
     /** Removes every furniture entity (plugin disable); the chunk data stays. */

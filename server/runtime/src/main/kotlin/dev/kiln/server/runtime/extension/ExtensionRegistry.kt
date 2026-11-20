@@ -41,6 +41,9 @@ class ExtensionRegistry(
 ) {
     private val byId = LinkedHashMap<String, ExtensionImpl>()
 
+    /** Called after [ExtensionImpl.unregister]: content in that namespace (items, furniture, tabs) goes with it. */
+    var onUnregistered: (id: String) -> Unit = {}
+
     /** What joining players get: [packages] in load order, or [problems] (then nobody can join). */
     data class Delivery(val packages: List<ExtensionPackage>, val problems: List<String>)
 
@@ -117,6 +120,7 @@ class ExtensionRegistry(
         byId.remove(extension.id)
         extension.channels.clear()
         snapshot()
+        onUnregistered(extension.id)
     }
 
     /** Removes the extensions [plugin] registered and every channel handler defined by its classes. */

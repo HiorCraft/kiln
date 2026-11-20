@@ -53,6 +53,11 @@ class CreativeTabCatalog<T>(private val extensions: (id: String) -> ContentExten
         if (entries.remove(entry)) version++
     }
 
+    /** Own tabs of extension [namespace] (vanilla-tab additions are keyed by the vanilla tab and stay). */
+    fun removeNamespace(namespace: String) {
+        if (entries.removeIf { it.target == null && it.id.namespace() == namespace }) version++
+    }
+
     fun removeOwner(owner: String) {
         if (entries.removeIf { it.owner == owner }) version++
     }

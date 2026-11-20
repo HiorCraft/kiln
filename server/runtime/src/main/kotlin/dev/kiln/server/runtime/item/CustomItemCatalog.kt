@@ -32,8 +32,16 @@ class CustomItemCatalog<V>(private val extensions: (id: String) -> ContentExtens
 
     fun all(): List<V> = entries.values.map { it.second }
 
-    fun remove(key: Key) {
-        entries.remove(key)
+    /** Removes [key] only while it still maps to [value] (a stale handle cannot remove a newer registration). */
+    fun remove(key: Key, value: V) {
+        if (entries[key]?.second === value) entries.remove(key)
+    }
+
+    /** Everything in extension namespace [namespace] (the extension was unregistered; its assets are gone). */
+    fun removeNamespace(namespace: String): List<V> {
+        val removed = entries.filterKeys { it.namespace() == namespace }
+        removed.keys.forEach(entries::remove)
+        return removed.values.map { it.second }
     }
 
     fun removeOwner(ownerName: String) {

@@ -42,7 +42,11 @@ class CustomItemRegistry(
 
     fun removeAll(plugin: Plugin) = catalog.removeOwner(plugin.name)
 
-    internal fun remove(item: CustomItemImpl) = catalog.remove(item.key)
+    internal fun remove(item: CustomItemImpl) = catalog.remove(item.key, item)
+
+    fun removeNamespace(namespace: String) {
+        catalog.removeNamespace(namespace)
+    }
 
     /** Runs a plugin hook; its exceptions are logged, never thrown into the event. */
     internal inline fun hook(item: CustomItem, what: String, block: () -> Unit) {

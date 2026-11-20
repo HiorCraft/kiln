@@ -41,6 +41,12 @@ class CreativeTabRegistry(
 
     override fun refresh() = onChanged()
 
+    fun removeNamespace(namespace: String) {
+        val before = catalog.version
+        catalog.removeNamespace(namespace)
+        if (catalog.version != before) onChanged()
+    }
+
     fun removeAll(plugin: Plugin) {
         val before = catalog.version
         catalog.removeOwner(plugin.name)

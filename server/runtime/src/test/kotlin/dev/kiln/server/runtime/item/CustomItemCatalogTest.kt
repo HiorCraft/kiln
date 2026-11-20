@@ -59,4 +59,24 @@ class CustomItemCatalogTest {
         assertNull(c.get(Key.key("kiln_content", "ruby")))
         assertEquals("b", c.get(Key.key("other", "ruby")))
     }
+
+    @Test
+    fun staleHandleDoesNotRemoveNewer() {
+        val c = catalog()
+        c.add("KilnExample", Key.key("kiln_content", "ruby"), null, "old")
+        c.remove(Key.key("kiln_content", "ruby"), "old")
+        c.add("KilnExample", Key.key("kiln_content", "ruby"), null, "new")
+        c.remove(Key.key("kiln_content", "ruby"), "old") // stale handle
+        assertEquals("new", c.get(Key.key("kiln_content", "ruby")))
+    }
+
+    @Test
+    fun unregisteringAnExtensionRemovesItsContent() {
+        val c = catalog()
+        c.add("KilnExample", Key.key("kiln_content", "ruby"), null, "a")
+        c.add("OtherPlugin", Key.key("other", "ruby"), null, "b")
+        c.removeNamespace("kiln_content")
+        assertNull(c.get(Key.key("kiln_content", "ruby")))
+        assertEquals("b", c.get(Key.key("other", "ruby")))
+    }
 }
