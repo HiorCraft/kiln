@@ -5,6 +5,7 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParseException
 import com.google.gson.JsonParser
 import com.google.gson.JsonPrimitive
+import dev.kiln.protocol.AssetRules
 import dev.kiln.protocol.ExtensionInfo
 import dev.kiln.protocol.ExtensionPermissions
 import dev.kiln.protocol.Ids
@@ -26,7 +27,8 @@ class ExtensionPackage(
     val id: String,
     val version: String,
     val name: String,
-    val main: String,
+    /** Lua entry point, `null` for a resource-only package. */
+    val main: String?,
     /** Canonical order ([ExtensionPermissions.ALL]). */
     val permissions: List<String>,
     /** Deterministic zip, files at the root. */
@@ -41,6 +43,9 @@ class ExtensionPackage(
 ) {
     val sha256Hex: String get() = info.sha256Hex
 
+    /** The package carries a resource-pack tree (`assets/<id>/…`). */
+    val hasAssets: Boolean get() = files.any { it.startsWith(AssetRules.ROOT) }
+
     val info: ExtensionInfo
         get() = ExtensionInfo(id, version, name, sha256.copyOf(), zip.size, permissions, icon?.copyOf(), dependencies.map { it.id })
 }
@@ -51,9 +56,9 @@ class ExtensionPackage(
  */
 object ExtensionPackager {
     const val MANIFEST_FILE = "extension.json"
-    const val MAX_FILES = 256
-    const val MAX_PATH_LENGTH = 128
-    const val MAX_UNCOMPRESSED_BYTES = 16 * 1024 * 1024
+    const val MAX_FILES = ProtocolLimits.MAX_EXTENSION_FILES
+    const val MAX_PATH_LENGTH = 192
+    const val MAX_UNCOMPRESSED_BYTES = ProtocolLimits.MAX_EXTENSION_UNPACKED_BYTES
     const val MAX_MANIFEST_BYTES = 64 * 1024
 
     /** Optional `icon` (shown in the client's consent screen): PNG, at most this many bytes and pixels per side. */
@@ -82,7 +87,7 @@ object ExtensionPackager {
         for ((path, bytes) in files) {
             validatePath(path)
             total += bytes.size
-            validateContent(path, bytes)
+            validateContent(expectedId, path, bytes)
         }
         if (total > MAX_UNCOMPRESSED_BYTES) {
             throw InvalidExtensionException("Package too large uncompressed ($total > $MAX_UNCOMPRESSED_BYTES bytes)")
@@ -95,10 +100,17 @@ object ExtensionPackager {
         if (id != expectedId) throw InvalidExtensionException("$MANIFEST_FILE id '$id' does not match '$expectedId'")
         val version = manifest.string("version", ProtocolLimits.MAX_EXTENSION_VERSION_LENGTH)
         val name = manifest.string("name", ProtocolLimits.MAX_EXTENSION_NAME_LENGTH)
-        val main = if (manifest.has("main")) manifest.string("main", MAX_PATH_LENGTH) else "main.lua"
-        if (!main.endsWith(".lua")) throw InvalidExtensionException("main '$main' is not a .lua file")
-        if (main !in files) throw InvalidExtensionException("main '$main' does not exist")
-        val permissions = parsePermissions(manifest)
+        // resource-only packages have no Lua: an explicit main must exist, the default main.lua is optional
+        val main = if (manifest.has("main")) manifest.string("main", MAX_PATH_LENGTH) else "main.lua".takeIf { it in files }
+        if (main != null) {
+            if (!main.endsWith(".lua")) throw InvalidExtensionException("main '$main' is not a .lua file")
+            if (main !in files) throw InvalidExtensionException("main '$main' does not exist")
+        }
+        val hasAssets = files.keys.any { it.startsWith(AssetRules.ROOT) }
+        // an assets/ tree implies the resources permission (shown in the consent screen)
+        val permissions = parsePermissions(manifest).let { requested ->
+            if (hasAssets && ExtensionPermissions.RESOURCES !in requested) ExtensionPermissions.ALL.filter { it in requested || it == ExtensionPermissions.RESOURCES } else requested
+        }
         val icon = if (manifest.has("icon")) validateIcon(manifest.string("icon", MAX_PATH_LENGTH), files) else null
         val dependencies = parseDependencies(manifest, id)
 
@@ -121,21 +133,53 @@ object ExtensionPackager {
             }
         }
         val extension = path.substringAfterLast('/').substringAfterLast('.', "")
-        if (extension !in ALLOWED_EXTENSIONS) {
+        if (path.startsWith(AssetRules.ROOT)) {
+            if (extension !in AssetRules.EXTENSIONS) {
+                throw InvalidExtensionException("File type not allowed: '$path' (allowed in assets: ${AssetRules.EXTENSIONS.joinToString()})")
+            }
+        } else if (extension !in ALLOWED_EXTENSIONS) {
             throw InvalidExtensionException("File type not allowed: '$path' (allowed: ${ALLOWED_EXTENSIONS.joinToString()})")
         }
     }
 
-    private fun validateContent(path: String, bytes: ByteArray) {
+    private val BINARY_ASSETS = setOf("ogg", "ttf", "otf")
+
+    private fun validateContent(id: String, path: String, bytes: ByteArray) {
+        val asset = path.startsWith(AssetRules.ROOT)
+        if (asset) AssetRules.problem(id, path, bytes.size)?.let { throw InvalidExtensionException(it) }
+        val suffix = path.substringAfterLast('.', "")
         if (path.endsWith(".png")) {
             if (bytes.size < PNG_MAGIC.size || !bytes.copyOf(PNG_MAGIC.size).contentEquals(PNG_MAGIC)) {
                 throw InvalidExtensionException("'$path' is not a PNG file")
             }
+            if (asset) validateAssetPng(path, bytes)
+        } else if (asset && suffix in BINARY_ASSETS) {
+            return
         } else {
             try {
                 Charsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes))
             } catch (e: CharacterCodingException) {
                 throw InvalidExtensionException("'$path' is not valid UTF-8", e)
+            }
+            if (asset && (suffix == "json" || suffix == "mcmeta")) validateAssetJson(id, path, bytes.toString(Charsets.UTF_8))
+        }
+    }
+
+    private fun validateAssetPng(path: String, bytes: ByteArray) {
+        if (bytes.size < 24 || String(bytes, 12, 4, Charsets.US_ASCII) != "IHDR") return // checked by the client when decoding
+        val buffer = ByteBuffer.wrap(bytes, 16, 8)
+        val width = buffer.int
+        val height = buffer.int
+        val max = ProtocolLimits.MAX_ASSET_TEXTURE_SIZE
+        if (width !in 1..max || height !in 1..max) throw InvalidExtensionException("'$path' is ${width}x$height, at most ${max}x$max allowed")
+    }
+
+    private fun validateAssetJson(id: String, path: String, json: String) {
+        AssetRules.jsonProblem(path, json)?.let { throw InvalidExtensionException(it) }
+        if (path.startsWith("${AssetRules.ROOT}$id/lang/") && path.endsWith(".json")) {
+            val keys = (JsonParser.parseString(json) as? JsonObject ?: throw InvalidExtensionException("'$path' must be a JSON object")).keySet()
+            keys.firstOrNull { !AssetRules.langKeyAllowed(id, it) }?.let {
+                throw InvalidExtensionException("'$path': translation key '$it' must start with '$id.'")
             }
         }
     }

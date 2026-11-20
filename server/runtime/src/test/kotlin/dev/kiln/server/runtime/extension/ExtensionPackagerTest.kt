@@ -106,13 +106,14 @@ class ExtensionPackagerTest {
         rejects(files("""{"id":"demo","version":"1","name":"x","main":"extension.json"}""".toByteArray()), contains = "not a .lua")
         rejects(files("not json {".toByteArray()), contains = "not valid JSON")
         rejects(files("[1]".toByteArray()), contains = "JSON object")
-        rejects(files().also { it.remove("main.lua") }, contains = "main 'main.lua'")
+        // since v6 a package without main.lua (and without "main") is a resource-only package
+        assertEquals(null, ExtensionPackager.build("demo", files().also { it.remove("main.lua") }).main)
     }
 
     @Test
     fun `invalid paths and contents are rejected`() {
         for (path in listOf("../evil.lua", "a/../b.lua", "/abs.lua", "a//b.lua", "./a.lua", "Main.lua", "a\\b.lua",
-            "x.class", "readme.md", "noext", "textures/a b.png", "ä.lua", "a".repeat(130) + ".lua")) {
+            "x.class", "readme.md", "noext", "textures/a b.png", "ä.lua", "a".repeat(ExtensionPackager.MAX_PATH_LENGTH) + ".lua")) {
             assertThrows<InvalidExtensionException>(path) { ExtensionPackager.build("demo", files().also { it[path] = "x".toByteArray() }) }
         }
         assertThrows<InvalidExtensionException> { ExtensionPackager.build("demo", files().also { it["textures/fake.png"] = "notpng".toByteArray() }) }
@@ -200,5 +201,65 @@ class ExtensionPackagerTest {
         assertThrows<InvalidExtensionException> {
             ExtensionPackager.build("demo", bad("icon.png", iconPng(16, 16, ExtensionPackager.MAX_ICON_BYTES)))
         }
+    }
+
+    // ---- v6: resource-pack trees ---------------------------------------------------------------------------
+
+    private fun resourceFiles(vararg extra: Pair<String, String>): LinkedHashMap<String, ByteArray> = linkedMapOf(
+        "extension.json" to """{"id":"demo","version":"1","name":"Demo"}""".toByteArray(),
+        "assets/demo/models/item/a.json" to """{"parent":"minecraft:item/generated","textures":{"layer0":"demo:item/a"}}""".toByteArray(),
+    ).also { m -> extra.forEach { (k, v) -> m[k] = v.toByteArray() } }
+
+    @Test
+    fun `resource-only package without main gets the resources permission`() {
+        val pkg = ExtensionPackager.build("demo", resourceFiles())
+        assertEquals(null, pkg.main)
+        assertTrue(pkg.hasAssets)
+        assertEquals(listOf("resources"), pkg.permissions)
+    }
+
+    @Test
+    fun `explicit main must exist`() {
+        val f = resourceFiles()
+        f["extension.json"] = """{"id":"demo","version":"1","name":"Demo","main":"start.lua"}""".toByteArray()
+        assertThrows<InvalidExtensionException> { ExtensionPackager.build("demo", f) }
+    }
+
+    @Test
+    fun `assets of a foreign namespace are rejected`() {
+        val e = assertThrows<InvalidExtensionException> {
+            ExtensionPackager.build("demo", resourceFiles("assets/minecraft/models/item/stick.json" to "{}"))
+        }
+        assertTrue(e.message!!.contains("assets/minecraft/models/item/stick.json"), e.message)
+    }
+
+    @Test
+    fun `kiln references in asset json are rejected`() {
+        assertThrows<InvalidExtensionException> {
+            ExtensionPackager.build("demo", resourceFiles("assets/demo/font/x.json" to """{"providers":[{"type":"bitmap","file":"kiln:gui/x.png"}]}"""))
+        }
+    }
+
+    @Test
+    fun `foreign language keys are rejected`() {
+        assertThrows<InvalidExtensionException> {
+            ExtensionPackager.build("demo", resourceFiles("assets/demo/lang/en_us.json" to """{"gui.done":"Weg"}"""))
+        }
+        ExtensionPackager.build("demo", resourceFiles("assets/demo/lang/en_us.json" to """{"demo.title":"Demo"}"""))
+    }
+
+    @Test
+    fun `ogg only below assets`() {
+        assertThrows<InvalidExtensionException> { ExtensionPackager.build("demo", resourceFiles("sounds/a.ogg" to "OggS")) }
+        ExtensionPackager.build("demo", resourceFiles("assets/demo/sounds/a.ogg" to "OggS"))
+    }
+
+    @Test
+    fun `accepts up to the file limit`() {
+        val f = resourceFiles()
+        repeat(ProtocolLimits.MAX_EXTENSION_FILES - f.size) { f["assets/demo/textures/t$it.png.mcmeta"] = "{}".toByteArray() }
+        assertEquals(ProtocolLimits.MAX_EXTENSION_FILES, ExtensionPackager.build("demo", f).files.size)
+        f["assets/demo/one_more.txt"] = ByteArray(0)
+        assertThrows<InvalidExtensionException> { ExtensionPackager.build("demo", f) }
     }
 }
