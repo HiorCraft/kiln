@@ -3,39 +3,37 @@ package dev.kiln.client.ext
 import com.google.gson.JsonParser
 import com.mojang.blaze3d.platform.NativeImage
 import dev.kiln.client.keybind.DynamicTranslations
+import dev.kiln.client.keybind.KeybindHandler
 import dev.kiln.client.keybind.ServerKeybinds
 import dev.kiln.client.lua.ExtensionHost
-import dev.kiln.client.lua.InventorySlot
-import dev.kiln.client.lua.ItemRef
 import dev.kiln.client.lua.LuaExtension
-import dev.kiln.client.lua.LuaLimits
-import dev.kiln.client.lua.LuaScreenSession
-import dev.kiln.client.lua.LuaScriptException
 import dev.kiln.client.lua.PlayerSnapshot
 import dev.kiln.client.lua.ViewportInfo
+import dev.kiln.client.lua.WidgetInstance
+import dev.kiln.client.lua.items.InventorySlot
+import dev.kiln.client.lua.items.ItemRef
+import dev.kiln.client.lua.sandbox.LuaLimits
+import dev.kiln.client.lua.sandbox.LuaScriptException
+import dev.kiln.client.lua.screen.LuaScreenSession
+import dev.kiln.client.mixin.TextureManagerAccessor
 import dev.kiln.client.screen.ItemStacks
-import net.minecraft.client.resources.sounds.SimpleSoundInstance
-import net.minecraft.client.resources.sounds.SoundInstance
-import net.minecraft.sounds.SoundSource
-import net.minecraft.sounds.SoundEvents
-import net.minecraft.util.Util
+import dev.kiln.client.screen.KilnScreen
 import dev.kiln.client.toast.KilnToast
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElement
+import net.fabricmc.loader.api.FabricLoader
 import net.minecraft.client.DeltaTracker
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.GuiGraphicsExtractor
 import net.minecraft.client.renderer.texture.DynamicTexture
-import net.minecraft.network.chat.Component
+import net.minecraft.client.resources.sounds.SimpleSoundInstance
+import net.minecraft.client.resources.sounds.SoundInstance
 import net.minecraft.locale.Language
+import net.minecraft.network.chat.Component
 import net.minecraft.resources.Identifier
-import dev.kiln.client.mixin.TextureManagerAccessor
-import net.fabricmc.loader.api.FabricLoader
+import net.minecraft.sounds.SoundEvents
+import net.minecraft.sounds.SoundSource
+import net.minecraft.util.Util
 import org.slf4j.LoggerFactory
-
-/** Textures of the loaded extensions (`<ext>:textures/...png` -> size). */
-interface ExtensionTextures {
-    fun size(id: String): IntArray?
-}
 
 /**
  * The extensions of the current connection, on the Minecraft side: registers their textures (as [DynamicTexture]s
@@ -142,9 +140,9 @@ class ExtensionManager(
             }
             var count = 0
             for ((key, value) in json.entrySet()) {
-                if (!key.startsWith(pkg.id + ".") || !value.isJsonPrimitive || ++count > 2_048) continue
+                if (!key.startsWith(pkg.id + ".") || !value.isJsonPrimitive || ++count > MAX_TRANSLATIONS_PER_FILE) continue
                 ExtensionNamespaces.checkTranslation(pkg.id, key, own, language::has)
-                DynamicTranslations.put(key, value.asString.take(1_024))
+                DynamicTranslations.put(key, value.asString.take(MAX_TRANSLATION_LENGTH))
                 own += key
                 translations += key
             }
@@ -154,7 +152,7 @@ class ExtensionManager(
     // ---- runtime hooks ------------------------------------------------------------------------------------
 
     /** A widget instance for `Custom` type [type] (`<ext>:<name>`), or `null` (placeholder). */
-    fun createWidget(type: Identifier): LuaExtension.WidgetInstance? {
+    fun createWidget(type: Identifier): WidgetInstance? {
         val extension = extensions[type.namespace] ?: return null
         if (!extension.alive || !extension.hasWidget(type.path)) return null
         return extension.createWidget(type.path)
@@ -179,16 +177,8 @@ class ExtensionManager(
         for (extension in extensions.values.toList()) {
             for (layer in extension.hudLayers.toList()) {
                 if (!extension.alive) break
-                val x = when (layer.anchor) {
-                    "top_left", "left", "bottom_left" -> HUD_MARGIN
-                    "top", "center", "bottom" -> (screenW - layer.width) / 2
-                    else -> screenW - layer.width - HUD_MARGIN
-                }
-                val y = when (layer.anchor) {
-                    "top_left", "top", "top_right" -> HUD_MARGIN
-                    "left", "center", "right" -> (screenH - layer.height) / 2
-                    else -> screenH - layer.height - HUD_MARGIN
-                }
+                val x = hudX(layer.anchor, layer.width, screenW)
+                val y = hudY(layer.anchor, layer.height, screenH)
                 graphics.enableScissor(x, y, x + layer.width, y + layer.height)
                 try {
                     extension.renderHud(layer, target, x, y)
@@ -199,18 +189,30 @@ class ExtensionManager(
         }
     }
 
+    /** Left edge of a HUD layer: anchored left, centered or right (the default). */
+    private fun hudX(anchor: String, width: Int, screenWidth: Int): Int = when (anchor) {
+        "top_left", "left", "bottom_left" -> HUD_MARGIN
+        "top", "center", "bottom" -> (screenWidth - width) / 2
+        else -> screenWidth - width - HUD_MARGIN
+    }
+
+    /** Top edge of a HUD layer: anchored top, centered or bottom (the default). */
+    private fun hudY(anchor: String, height: Int, screenHeight: Int): Int = when (anchor) {
+        "top_left", "top", "top_right" -> HUD_MARGIN
+        "left", "center", "right" -> (screenHeight - height) / 2
+        else -> screenHeight - height - HUD_MARGIN
+    }
+
     // ---- ExtensionHost ------------------------------------------------------------------------------------
 
     override fun send(channel: String, json: String): Boolean = sender(channel, json)
 
     override fun toast(extension: LuaExtension, title: String, text: String) {
-        minecraft.gui.toastManager().addToast(KilnToast(Component.literal(title), Component.literal(text).takeIf { text.isNotEmpty() }, null, 5_000))
+        minecraft.gui.toastManager().addToast(KilnToast(Component.literal(title), Component.literal(text).takeIf { text.isNotEmpty() }, null, TOAST_MILLIS))
     }
 
     override fun bindKey(extension: LuaExtension, id: String, name: String, defaultKey: String) {
-        ServerKeybinds.registerExtension(extension.id, id, name, extension.name, defaultKey, object : ServerKeybinds.Handler {
-            override fun onKey(id: String, pressed: Boolean) = extension.onKey(id, pressed)
-        })
+        ServerKeybinds.registerExtension(extension.id, id, name, extension.name, defaultKey, KeybindHandler(extension::onKey))
     }
 
     override fun time(): Double {
@@ -229,28 +231,32 @@ class ExtensionManager(
 
     override fun failed(extension: LuaExtension, error: LuaScriptException) {
         logger.warn("Extension {} stopped: {}", extension.id, error.message)
-        ServerKeybinds.removeExtension(extension.id)
-        closeLuaScreen { it.extension === extension }
+        detach(extension)
         // extensions importing it stop as well (no fallbacks)
         for (dependent in dependentsOf(extension.id)) {
             if (!dependent.alive) continue
             logger.warn("Extension {} stopped: its dependency {} was unloaded", dependent.id, extension.id)
             dependent.stop()
-            ServerKeybinds.removeExtension(dependent.id)
-            closeLuaScreen { it.extension === dependent }
+            detach(dependent)
         }
         minecraft.gui.toastManager().addToast(
             KilnToast(
                 Component.literal("Erweiterung „${extension.name}“ entladen"),
                 Component.literal(error.message ?: "Skriptfehler"),
                 null,
-                10_000,
+                FAILURE_TOAST_MILLIS,
             ),
         )
     }
 
+    /** Removes the keybinds and the open screen of a stopped [extension] (without running its Lua). */
+    private fun detach(extension: LuaExtension) {
+        ServerKeybinds.removeExtension(extension.id)
+        closeLuaScreen { it.extension === extension }
+    }
+
     /** Loaded extensions that (transitively) import [id]. */
-    fun dependentsOf(id: String): List<LuaExtension> {
+    private fun dependentsOf(id: String): List<LuaExtension> {
         val result = LinkedHashSet<LuaExtension>()
         var changed = true
         while (changed) {
@@ -273,7 +279,7 @@ class ExtensionManager(
         if (!inWorld() || minecraft.player == null) return false
         // never over the player's own screens (pause, chat, options, inventory): only over nothing or kiln screens
         val current = minecraft.gui.screen()
-        if (current != null && current !is LuaScreen && current !is dev.kiln.client.screen.KilnScreen) return false
+        if (current != null && current !is LuaScreen && current !is KilnScreen) return false
         minecraft.gui.setScreen(LuaScreen(session, this))
         return (minecraft.gui.screen() as? LuaScreen)?.session === session
     }
@@ -339,21 +345,9 @@ class ExtensionManager(
     private companion object {
         const val HUD_MARGIN = 4
         const val MAX_TEXTURE_SIZE = 2048
-    }
-}
-
-class ExtensionLoadException(message: String) : Exception(message)
-
-/** Width/height from a PNG's IHDR chunk, checked before decoding (no decompression bombs). */
-object PngHeader {
-    private val SIGNATURE = byteArrayOf(0x89.toByte(), 'P'.code.toByte(), 'N'.code.toByte(), 'G'.code.toByte(), 0x0D, 0x0A, 0x1A, 0x0A)
-
-    fun size(bytes: ByteArray): IntArray? {
-        if (bytes.size < 24) return null
-        for (i in SIGNATURE.indices) if (bytes[i] != SIGNATURE[i]) return null
-        if (String(bytes, 12, 4, Charsets.US_ASCII) != "IHDR") return null
-        fun int(at: Int) = ((bytes[at].toInt() and 0xFF) shl 24) or ((bytes[at + 1].toInt() and 0xFF) shl 16) or
-            ((bytes[at + 2].toInt() and 0xFF) shl 8) or (bytes[at + 3].toInt() and 0xFF)
-        return intArrayOf(int(16), int(20))
+        const val MAX_TRANSLATIONS_PER_FILE = 2_048
+        const val MAX_TRANSLATION_LENGTH = 1_024
+        const val TOAST_MILLIS = 5_000L
+        const val FAILURE_TOAST_MILLIS = 10_000L
     }
 }

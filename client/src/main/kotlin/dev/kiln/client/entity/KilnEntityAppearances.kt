@@ -1,7 +1,7 @@
 package dev.kiln.client.entity
 
 import dev.kiln.client.entity.model.ActiveAnimation
-import dev.kiln.protocol.EntityAppearance
+import dev.kiln.protocol.message.EntityAppearance
 import net.minecraft.client.Minecraft
 
 /**
@@ -9,19 +9,15 @@ import net.minecraft.client.Minecraft
  * Kept by id because messages may arrive before the entity exists on the client. Render thread only.
  */
 object KilnEntityAppearances {
-    class Entry(val appearance: EntityAppearance) {
-        val animations = ArrayList<ActiveAnimation>()
-    }
+    private val entries = HashMap<Int, AppearanceEntry>()
 
-    private val entries = HashMap<Int, Entry>()
-
-    fun get(entityId: Int): Entry? = entries[entityId]
+    fun get(entityId: Int): AppearanceEntry? = entries[entityId]
 
     fun isEmpty(): Boolean = entries.isEmpty()
 
     fun set(appearance: EntityAppearance) {
         val old = entries[appearance.entityId]
-        val entry = Entry(appearance)
+        val entry = AppearanceEntry(appearance)
         if (old != null && old.appearance.model == appearance.model) entry.animations += old.animations
         entries[appearance.entityId] = entry
         refreshDimensions(appearance.entityId)

@@ -1,13 +1,13 @@
 package dev.kiln.client.screen
 
 import dev.kiln.protocol.Bounds
-import dev.kiln.protocol.Button
-import dev.kiln.protocol.Modal
-import dev.kiln.protocol.NumericRange
-import dev.kiln.protocol.Panel
-import dev.kiln.protocol.ScrollPanel
-import dev.kiln.protocol.Text
-import dev.kiln.protocol.topModal
+import dev.kiln.protocol.element.Button
+import dev.kiln.protocol.element.Modal
+import dev.kiln.protocol.element.NumericRange
+import dev.kiln.protocol.element.Panel
+import dev.kiln.protocol.element.ScrollPanel
+import dev.kiln.protocol.element.Text
+import dev.kiln.protocol.element.topModal
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull

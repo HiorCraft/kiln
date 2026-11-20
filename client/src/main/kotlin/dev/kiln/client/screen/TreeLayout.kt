@@ -1,53 +1,9 @@
 package dev.kiln.client.screen
 
-import dev.kiln.protocol.Container
-import dev.kiln.protocol.Element
-import dev.kiln.protocol.Modal
-import dev.kiln.protocol.ScrollPanel
-
-/**
- * An element with its offset relative to the root's top-left corner (parents' offsets resolved, scroll offsets
- * **not** applied: children of a [ScrollPanel] are placed as if the panel were scrolled to the top).
- */
-data class PlacedElement(
-    val element: Element,
-    val offsetX: Int,
-    val offsetY: Int,
-    /** Index of the parent in the flattened list, `-1` for the root. */
-    val parentIndex: Int = -1,
-    /** Index of the nearest enclosing [ScrollPanel] in the flattened list, `-1` if none. */
-    val scrollParentIndex: Int = -1,
-    /** Id of the [Modal] (a direct child of the root) this element belongs to (the modal itself included), else `null`. */
-    val modalId: String? = null,
-    /** Index of the last descendant in the flattened list (inclusive); equals the own index for leaves. */
-    val subtreeEnd: Int = 0,
-) {
-    val width: Int get() = element.bounds.width
-    val height: Int get() = element.bounds.height
-}
-
-/** Integer rectangle with exclusive right/bottom edge (screen GUI pixels). */
-data class Rect(val x0: Int, val y0: Int, val x1: Int, val y1: Int) {
-    val width: Int get() = x1 - x0
-    val height: Int get() = y1 - y0
-    val isEmpty: Boolean get() = x1 <= x0 || y1 <= y0
-
-    fun contains(x: Double, y: Double): Boolean = x >= x0 && y >= y0 && x < x1 && y < y1
-
-    fun intersect(other: Rect): Rect =
-        Rect(maxOf(x0, other.x0), maxOf(y0, other.y0), minOf(x1, other.x1), minOf(y1, other.y1))
-            .let { if (it.isEmpty) Rect(it.x0, it.y0, it.x0, it.y0) else it }
-
-    companion object {
-        fun of(x: Int, y: Int, width: Int, height: Int): Rect = Rect(x, y, x + width, y + height)
-    }
-}
-
-/** Screen geometry of one placed element for the current frame: scrolled position and the clip of its scroll parents. */
-data class Geometry(val rect: Rect, val clip: Rect?) {
-    /** `true` if ([x], [y]) is inside the element and inside its visible (clipped) area. */
-    fun hit(x: Double, y: Double): Boolean = rect.contains(x, y) && (clip == null || clip.contains(x, y))
-}
+import dev.kiln.protocol.element.Container
+import dev.kiln.protocol.element.Element
+import dev.kiln.protocol.element.Modal
+import dev.kiln.protocol.element.ScrollPanel
 
 /** Pure layout helpers for the server GUI tree (no Minecraft types). */
 object TreeLayout {
@@ -136,54 +92,5 @@ object TreeLayout {
             if (geometry[i].hit(x, y)) return i
         }
         return -1
-    }
-}
-
-/**
- * Keeps one stateful object (vanilla widget, widget context, ...) per element id across tree updates.
- * Objects whose id survives an update are reused (so focus, cursor and text survive), new ids get a new object,
- * vanished ids are disposed.
- */
-class KeyedPool<S, W>(
-    private val idOf: (S) -> String,
-    private val create: (S) -> W,
-    private val update: (W, S) -> Unit,
-    private val dispose: (W) -> Unit = {},
-    /** Whether an existing object can represent the new spec (e.g. same element kind); otherwise it is recreated. */
-    private val compatible: (W, S) -> Boolean = { _, _ -> true },
-) {
-    private val entries = LinkedHashMap<String, W>()
-
-    val size: Int get() = entries.size
-
-    operator fun get(id: String): W? = entries[id]
-
-    val values: Collection<W> get() = entries.values
-
-    /** Applies [specs] (in order); returns the objects in the order of [specs]. */
-    fun sync(specs: List<S>): List<W> {
-        val next = LinkedHashMap<String, W>()
-        for (spec in specs) {
-            val id = idOf(spec)
-            if (id in next) continue // ids are unique per tree; be defensive anyway
-            val existing = entries.remove(id)
-            val target = if (existing != null && compatible(existing, spec)) {
-                existing
-            } else {
-                existing?.let(dispose)
-                create(spec)
-            }
-            update(target, spec)
-            next[id] = target
-        }
-        entries.values.forEach(dispose)
-        entries.clear()
-        entries.putAll(next)
-        return next.values.toList()
-    }
-
-    fun clear() {
-        entries.values.forEach(dispose)
-        entries.clear()
     }
 }

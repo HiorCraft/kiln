@@ -1,44 +1,28 @@
 package dev.kiln.client.lua
 
-import dev.kiln.client.ext.ExtensionPackage
-import dev.kiln.client.lua.LuaScreenSession.KeyResult
-import dev.kiln.client.lua.LuaScreenSession.Mods
 import dev.kiln.client.lua.V2Host.Companion.item
 import dev.kiln.client.lua.V2Host.Companion.pkg
+import dev.kiln.client.lua.items.InventorySlot
+import dev.kiln.client.lua.screen.KeyResult
+import dev.kiln.client.lua.screen.LuaScreenSession
+import dev.kiln.client.lua.screen.ModifierKeys
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.luaj.vm2.LuaValue
-import java.io.File
 
 /**
  * The real `ui_kit` and `shop` extensions of the example server (`example/server/src/main/resources/extensions/`)
  * in the real sandbox: loading, component logic, client-side filtering, the shop flows and the render budget.
  */
 class ShopExtensionTest {
-    private val none = Mods(false, false, false)
-    private val shift = Mods(true, false, false)
-
-    private fun extensionDir(id: String): File {
-        val candidates = listOf(File("../example/server/src/main/resources/extensions/$id"), File("example/server/src/main/resources/extensions/$id"))
-        return candidates.firstOrNull { it.isDirectory } ?: error("extension $id not found from ${File(".").absolutePath}")
-    }
-
-    /** Reads an extension folder like the server packs it (permissions/dependencies from extension.json). */
-    private fun realPackage(id: String): ExtensionPackage {
-        val dir = extensionDir(id)
-        val files = dir.walkTopDown().filter { it.isFile }.associate { it.relativeTo(dir).invariantSeparatorsPath to it.readBytes() }
-        val json = com.google.gson.JsonParser.parseString(files.getValue("extension.json").toString(Charsets.UTF_8)).asJsonObject
-        val permissions = json.getAsJsonArray("permissions").map { it.asString }.toSet()
-        val deps = json.getAsJsonArray("dependencies")?.map { it.asString } ?: emptyList()
-        return ExtensionPackage(id, json["version"].asString, json["name"].asString, "main.lua", permissions, files, deps)
-    }
+    private val shift = ModifierKeys(true, false, false)
 
     private fun loadShop(host: V2Host = V2Host()): Pair<V2Host, LuaExtension> {
-        host.load(realPackage("ui_kit"))
-        val shop = host.load(realPackage("shop"))
+        host.load(ExampleExtensions.pkg("ui_kit"))
+        val shop = host.load(ExampleExtensions.pkg("shop"))
         assertTrue(shop.alive, host.failures.toString())
         return host to shop
     }
@@ -61,23 +45,7 @@ class ShopExtensionTest {
         offer(5, "Glass", "minecraft:glass", "BLOCKS", 3, 256, "Steve", own = true, created = 50),
     )
 
-    private fun lua(ext: LuaExtension, path: String): LuaValue = path.split('.').fold(ext.runtime.globals as LuaValue) { t, k -> t.get(k) }
-
     private fun call(ext: LuaExtension, fn: LuaValue, vararg args: LuaValue): org.luaj.vm2.Varargs = ext.invoke(fn, LuaValue.varargsOf(args))!!
-
-    private fun frame(session: LuaScreenSession, mx: Int = 0, my: Int = 0, target: CountingTarget = CountingTarget()): CountingTarget {
-        session.render(target, mx, my)
-        return target
-    }
-
-    /** Click like a player: the frame before knows the regions, the frame after reports the click. */
-    private fun click(session: LuaScreenSession, x: Int, y: Int, mods: Mods = none): Boolean {
-        frame(session, x, y)
-        val used = session.mouseClicked(x.toDouble(), y.toDouble(), 0, mods)
-        session.mouseReleased(x.toDouble(), y.toDouble(), 0)
-        frame(session, x, y)
-        return used
-    }
 
     @Test
     fun `both extensions load and the server opens the shop`() {
@@ -278,7 +246,7 @@ class ShopExtensionTest {
         val field = session.textInputs.single().box as FakeBox
         assertEquals("3", field.value)
         field.type("5") // "35"
-        assertEquals(KeyResult.HANDLED, session.keyPressed("enter", none))
+        assertEquals(KeyResult.HANDLED, session.keyPressed("enter", NO_MODS))
         val (channel, json) = host.sent.last()
         assertEquals("shop:reprice", channel)
         assertEquals(35, com.google.gson.JsonParser.parseString(json).asJsonObject["price"].asInt)
@@ -341,7 +309,7 @@ class ShopExtensionTest {
 
     private fun kitHost(): Pair<V2Host, LuaExtension> {
         val host = V2Host()
-        host.load(realPackage("ui_kit"))
+        host.load(ExampleExtensions.pkg("ui_kit"))
         val app = host.load(pkg("app", setOf("screens", "channels"), listOf("ui_kit"), "main.lua" to kitApp))
         app.onChannelMessage("open", "{}")
         return host to app
@@ -362,9 +330,9 @@ class ShopExtensionTest {
         assertTrue(session.self.get("ui").get("openDropdown").isnil())
         // keyboard: open, down twice from the selection, enter
         click(session, 220, 20)
-        assertEquals(KeyResult.HANDLED, session.keyPressed("down", none))
-        assertEquals(KeyResult.HANDLED, session.keyPressed("down", none))
-        assertEquals(KeyResult.HANDLED, session.keyPressed("enter", none))
+        assertEquals(KeyResult.HANDLED, session.keyPressed("down", NO_MODS))
+        assertEquals(KeyResult.HANDLED, session.keyPressed("down", NO_MODS))
+        assertEquals(KeyResult.HANDLED, session.keyPressed("enter", NO_MODS))
         frame(session)
         assertEquals("e", g(app, "value").tojstring())
         // wheel scrolls the long list (20 options, 5 rows); Escape closes it without closing the screen
@@ -397,7 +365,7 @@ class ShopExtensionTest {
         assertEquals(0, g(app, "level").toint())
         // dragging: press, move, frame, release
         frame(session, 14, 75)
-        session.mouseClicked(14.0, 75.0, 0, none)
+        session.mouseClicked(14.0, 75.0, 0, NO_MODS)
         frame(session, 14 + 30, 75)
         assertEquals(4, g(app, "level").toint()) // 30/100*10 = 3 -> on the step-2 grid 1.5 rounds up to 4
         frame(session, 14 + 70, 75)
@@ -453,7 +421,7 @@ class ShopExtensionTest {
         click(session, 320, 125)
         // dragging the thumb (x 374..380): thumb 10 px high (min 16) at the top; drag down 42 px -> 42 * 900 / 84
         frame(session, 377, 105)
-        session.mouseClicked(377.0, 105.0, 0, none)
+        session.mouseClicked(377.0, 105.0, 0, NO_MODS)
         frame(session, 377, 147)
         assertEquals(450.0, g(app, "offset").todouble(), 1.0)
         session.mouseReleased(377.0, 147.0, 0)

@@ -3,31 +3,19 @@ package dev.kiln.client.entity
 import com.mojang.blaze3d.vertex.PoseStack
 import dev.kiln.client.entity.model.ActiveAnimation
 import dev.kiln.client.entity.model.AnimationMixer
-import dev.kiln.protocol.AnimationMode
+import dev.kiln.protocol.message.AnimationMode
 import dev.kiln.client.entity.model.BonePose
 import dev.kiln.client.entity.model.GeoMesh
 import dev.kiln.client.entity.model.Vec3d
 import net.minecraft.client.renderer.SubmitNodeCollector
 import net.minecraft.client.renderer.entity.EntityRenderer
 import net.minecraft.client.renderer.entity.EntityRendererProvider
-import net.minecraft.client.renderer.entity.state.LivingEntityRenderState
 import net.minecraft.client.renderer.rendertype.RenderTypes
 import net.minecraft.client.renderer.state.level.CameraRenderState
 import net.minecraft.client.renderer.texture.OverlayTexture
 import net.minecraft.util.Mth
 import net.minecraft.util.Util
 import net.minecraft.world.entity.LivingEntity
-
-class KilnModelRenderState : LivingEntityRenderState() {
-    var entityId: Int = 0
-    var model: KilnModels.Loaded? = null
-    var poses: Map<String, BonePose> = emptyMap()
-    var hurt: Boolean = false
-
-    /** Ticks since death (with partial tick), 0 while alive; tips over like vanilla unless the model has `death`. */
-    var dying: Float = 0f
-    var tipOver: Boolean = false
-}
 
 /**
  * Draws living entities that have an `EntityAppearance` with their Bedrock bone model: state animation (idle/walk

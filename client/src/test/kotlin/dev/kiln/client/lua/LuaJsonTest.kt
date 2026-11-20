@@ -1,6 +1,8 @@
 package dev.kiln.client.lua
 
 import com.google.gson.JsonParser
+import dev.kiln.client.lua.json.LuaJson
+import dev.kiln.client.lua.sandbox.LuaRuntime
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue

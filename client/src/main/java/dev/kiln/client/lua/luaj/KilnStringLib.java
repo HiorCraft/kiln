@@ -22,7 +22,7 @@
 package dev.kiln.client.lua.luaj;
 
 // Copy of LuaJ 3.0.1's org.luaj.vm2.lib.StringLib (MIT licence, notice above). Kiln change: MatchState.match
-// charges its steps to the running Lua call (dev.kiln.client.lua.LuaExecution.chargeInstructions), so a
+// charges its steps to the running Lua call (dev.kiln.client.lua.sandbox.LuaExecution.chargeInstructions), so a
 // backtracking pattern hits the instruction budget instead of freezing the game. Everything else is unchanged.
 
 import org.luaj.vm2.lib.LibFunction;
@@ -1052,7 +1052,7 @@ public class KilnStringLib extends TwoArgFunction {
 			while ( true ) {
 				if ( ++unchargedSteps >= 64 ) {
 					unchargedSteps = 0;
-					dev.kiln.client.lua.LuaExecution.chargeInstructions( 64 );
+					dev.kiln.client.lua.sandbox.LuaExecution.chargeInstructions( 64 );
 				}
 				// Check if we are at the end of the pattern - 
 				// equivalent to the '\0' case in the C version, but our pattern

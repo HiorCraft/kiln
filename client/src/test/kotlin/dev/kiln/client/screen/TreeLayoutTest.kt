@@ -1,10 +1,12 @@
 package dev.kiln.client.screen
 
 import dev.kiln.protocol.Bounds
-import dev.kiln.protocol.Button
-import dev.kiln.protocol.Panel
-import dev.kiln.protocol.Text
-import dev.kiln.protocol.TextField
+import dev.kiln.protocol.element.Button
+import dev.kiln.protocol.element.Modal
+import dev.kiln.protocol.element.Panel
+import dev.kiln.protocol.element.ScrollPanel
+import dev.kiln.protocol.element.Text
+import dev.kiln.protocol.element.TextField
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertSame
@@ -45,8 +47,8 @@ class TreeLayoutTest {
         val root = Panel(
             "root", Bounds(0, 0, 200, 100),
             children = listOf(
-                dev.kiln.protocol.ScrollPanel("list", Bounds(5, 5, 50, 50), listOf(Text("row", Bounds(0, 70, 50, 10), "\"r\"")), contentHeight = 80),
-                dev.kiln.protocol.Modal("dialog", Bounds(20, 20, 60, 40), listOf(Button("ok", Bounds(2, 3, 20, 10), "\"OK\""))),
+                dev.kiln.protocol.element.ScrollPanel("list", Bounds(5, 5, 50, 50), listOf(Text("row", Bounds(0, 70, 50, 10), "\"r\"")), contentHeight = 80),
+                dev.kiln.protocol.element.Modal("dialog", Bounds(20, 20, 60, 40), listOf(Button("ok", Bounds(2, 3, 20, 10), "\"OK\""))),
             ),
         )
         val placed = TreeLayout.flatten(root).associateBy { it.element.id }
@@ -54,14 +56,12 @@ class TreeLayoutTest {
         assertEquals(22 to 23, placed.getValue("ok").let { it.offsetX to it.offsetY })
     }
 
-    private class W(val id: String, var kind: String, var updates: Int = 0)
-
     @Test
     fun `pool keeps objects by id, recreates incompatible and disposes vanished`() {
         val disposed = ArrayList<String>()
-        val pool = KeyedPool<Pair<String, String>, W>(
+        val pool = KeyedPool<Pair<String, String>, PooledThing>(
             idOf = { it.first },
-            create = { W(it.first, it.second) },
+            create = { PooledThing(it.first, it.second) },
             update = { w, s -> w.kind = s.second; w.updates++ },
             dispose = { disposed += it.id },
             compatible = { w, s -> w.kind == s.second },

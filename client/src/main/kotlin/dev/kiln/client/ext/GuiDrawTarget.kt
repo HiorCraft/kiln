@@ -1,9 +1,11 @@
 package dev.kiln.client.ext
 
 import com.mojang.blaze3d.platform.cursor.CursorTypes
-import dev.kiln.client.lua.DrawTarget
-import dev.kiln.client.lua.ItemRef
+import dev.kiln.client.lua.graphics.DrawTarget
+import dev.kiln.client.lua.items.ItemRef
 import dev.kiln.client.screen.CountFormat
+import kotlin.math.atan2
+import kotlin.math.sqrt
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.Font
 import net.minecraft.client.gui.GuiGraphicsExtractor
@@ -11,22 +13,12 @@ import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.gui.screens.inventory.tooltip.DefaultTooltipPositioner
 import net.minecraft.client.renderer.RenderPipelines
 import net.minecraft.core.component.DataComponents
-import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.network.chat.Component
 import net.minecraft.network.chat.FontDescription
 import net.minecraft.network.chat.Style
 import net.minecraft.resources.Identifier
 import net.minecraft.util.FormattedCharSequence
 import net.minecraft.world.item.ItemStack
-import kotlin.math.atan2
-import kotlin.math.sqrt
-
-/** A decoded item for Lua ([ItemRef]): an immutable display copy of a vanilla stack (count 1). */
-class StackItemRef(val stack: ItemStack) : ItemRef {
-    override val id: String = BuiltInRegistries.ITEM.getKey(stack.item).toString()
-    override val name: String = stack.hoverName.string
-    override val maxStackSize: Int = stack.maxStackSize
-}
 
 /** [DrawTarget] on top of the 26.3 GUI extraction API, used for Lua widgets, HUD layers and Lua screens. */
 class GuiDrawTarget(
@@ -104,7 +96,7 @@ class GuiDrawTarget(
     }
 
     override fun item(itemId: String, x: Int, y: Int, size: Int, count: Int, decorations: Boolean) {
-        val stack = ItemCache.get(itemId) ?: return
+        val stack = ItemStacksById.get(itemId) ?: return
         drawStack(stack, x, y, size, count, decorations)
     }
 
@@ -160,15 +152,5 @@ class GuiDrawTarget(
                 else -> CursorTypes.ARROW
             },
         )
-    }
-
-    /** Item stacks by id string (immutable display copies). */
-    private object ItemCache {
-        private val stacks = HashMap<String, ItemStack?>()
-
-        fun get(id: String): ItemStack? = stacks.getOrPut(id) {
-            if (stacks.size > 512) stacks.clear()
-            Identifier.tryParse(id)?.let { BuiltInRegistries.ITEM.getOptional(it).orElse(null) }?.let { ItemStack(it) }
-        }
     }
 }

@@ -1,6 +1,6 @@
 package dev.kiln.client.creative
 
-import dev.kiln.protocol.CreativeTabData
+import dev.kiln.protocol.message.CreativeTabData
 import dev.kiln.protocol.ItemStackData
 import dev.kiln.protocol.ResourceId
 import org.junit.jupiter.api.Assertions.assertEquals

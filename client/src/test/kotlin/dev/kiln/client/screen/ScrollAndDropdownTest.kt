@@ -41,6 +41,13 @@ class ScrollAndDropdownTest {
     }
 
     @Test
+    fun `pressing the thumb keeps the offset, pressing the track jumps there`() {
+        assertEquals(0.0, ScrollMath.offsetForPress(0.0, 20.0, 200, 100))
+        assertEquals(100.0, ScrollMath.offsetForPress(0.0, 80.0, 200, 100))
+        assertEquals(ScrollMath.offsetForTrackClick(10.0, 200, 100), ScrollMath.offsetForPress(100.0, 10.0, 200, 100))
+    }
+
+    @Test
     fun `ensure visible scrolls minimally`() {
         assertEquals(0.0, ScrollMath.ensureVisible(0.0, 10, 30, 500, 100))
         assertEquals(50.0, ScrollMath.ensureVisible(0.0, 130, 150, 500, 100))

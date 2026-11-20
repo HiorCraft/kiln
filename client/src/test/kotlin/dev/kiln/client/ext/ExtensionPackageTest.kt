@@ -1,7 +1,12 @@
 package dev.kiln.client.ext
 
-import dev.kiln.protocol.ExtensionChunk
-import dev.kiln.protocol.ExtensionInfo
+import dev.kiln.client.ext.handshake.ChunkAssembler
+import dev.kiln.client.ext.handshake.ExtensionCache
+import dev.kiln.client.ext.handshake.Sha256
+import dev.kiln.client.ext.trust.TrustGrant
+import dev.kiln.client.ext.trust.TrustStore
+import dev.kiln.protocol.message.ExtensionChunk
+import dev.kiln.protocol.message.ExtensionInfo
 import dev.kiln.protocol.ProtocolLimits
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -181,7 +186,7 @@ class ExtensionPackageTest {
         val file = dir.resolve("config/kiln-trust.json")
         val store = TrustStore(file)
         store.load()
-        val request = listOf(TrustStore.Grant("factory", setOf("widgets", "hud")), TrustStore.Grant("chat", emptySet()))
+        val request = listOf(TrustGrant("factory", setOf("widgets", "hud")), TrustGrant("chat", emptySet()))
         assertFalse(store.isTrusted("play.example.net", request))
         assertTrue(store.isTrusted("play.example.net", emptyList()))
         store.trust("play.example.net", request)
@@ -193,10 +198,10 @@ class ExtensionPackageTest {
         assertTrue(reloaded.isTrusted("play.example.net", request.take(1)))
         assertFalse(reloaded.isTrusted("other.net", request))
         // more permissions or a new extension ask again
-        assertFalse(reloaded.isTrusted("play.example.net", listOf(TrustStore.Grant("factory", setOf("widgets", "hud", "keybinds")))))
-        assertFalse(reloaded.isTrusted("play.example.net", request + TrustStore.Grant("new", emptySet())))
+        assertFalse(reloaded.isTrusted("play.example.net", listOf(TrustGrant("factory", setOf("widgets", "hud", "keybinds")))))
+        assertFalse(reloaded.isTrusted("play.example.net", request + TrustGrant("new", emptySet())))
         // a re-grant replaces the old permission set of that id
-        reloaded.trust("play.example.net", listOf(TrustStore.Grant("factory", setOf("widgets"))))
+        reloaded.trust("play.example.net", listOf(TrustGrant("factory", setOf("widgets"))))
         assertFalse(reloaded.isTrusted("play.example.net", request.take(1)))
     }
 
@@ -206,7 +211,7 @@ class ExtensionPackageTest {
         Files.writeString(file, "{ broken")
         val store = TrustStore(file)
         store.load()
-        assertFalse(store.isTrusted("a", listOf(TrustStore.Grant("x", emptySet()))))
+        assertFalse(store.isTrusted("a", listOf(TrustGrant("x", emptySet()))))
     }
 
     // ---- v6: resource-pack trees ---------------------------------------------------------------------------

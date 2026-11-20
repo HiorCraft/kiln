@@ -1,9 +1,10 @@
 package dev.kiln.client.lua
 
-import dev.kiln.client.lua.LuaScreenSession.KeyResult
-import dev.kiln.client.lua.LuaScreenSession.Mods
 import dev.kiln.client.lua.V2Host.Companion.item
 import dev.kiln.client.lua.V2Host.Companion.pkg
+import dev.kiln.client.lua.screen.KeyResult
+import dev.kiln.client.lua.screen.ModifierKeys
+import dev.kiln.client.lua.screen.ScreenState
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
@@ -13,7 +14,6 @@ import org.junit.jupiter.api.Test
 
 /** Lua screens: lifecycle, input dispatch, native text inputs, render performance. */
 class LuaScreenTest {
-    private val none = Mods(false, false, false)
 
     private fun log(ext: LuaExtension): List<String> {
         val t = ext.runtime.globals.get("log")
@@ -56,7 +56,7 @@ class LuaScreenTest {
     @Test
     fun `screen lifecycle, input dispatch and close reasons`() {
         val host = V2Host()
-        val ext = host.load(pkg("shop", setOf("screens", "channels"), files = *arrayOf("main.lua" to screens)))
+        val ext = host.load(pkg("shop", setOf("screens", "channels"), files = arrayOf("main.lua" to screens)))
         ext.onChannelMessage("open", """{"what":"main","title":"Shop"}""")
         val session = host.shown!!
         assertSame(session, ext.screenSession)
@@ -67,13 +67,13 @@ class LuaScreenTest {
         assertEquals(1, target.texts)
         assertEquals(listOf("hand"), target.cursors)
         session.layout(600, 400, 3.0)
-        assertTrue(session.mouseClicked(150.0, 130.0, 0, none))
+        assertTrue(session.mouseClicked(150.0, 130.0, 0, NO_MODS))
         session.mouseDragged(151.0, 130.0, 0, 1.0, 0.0)
         session.mouseReleased(151.0, 130.0, 0)
         assertTrue(session.mouseScrolled(150.0, 130.0, 0.0, -1.0))
         assertTrue(session.charTyped("x"))
-        assertEquals(KeyResult.PASS, session.keyPressed("a", Mods(true, false, false)))
-        assertEquals(KeyResult.HANDLED, session.keyPressed("tab", none)) // no inputs: Tab is harmless
+        assertEquals(KeyResult.PASS, session.keyPressed("a", ModifierKeys(true, false, false)))
+        assertEquals(KeyResult.HANDLED, session.keyPressed("tab", NO_MODS)) // no inputs: Tab is harmless
 
         // Escape: Lua may handle it (modal), otherwise the screen closes
         ext.runtime.globals.set("modal", org.luaj.vm2.LuaValue.TRUE)
@@ -91,7 +91,7 @@ class LuaScreenTest {
         )
         // nothing reaches Lua after close
         session.render(target, 0, 0)
-        assertFalse(session.mouseClicked(0.0, 0.0, 0, none))
+        assertFalse(session.mouseClicked(0.0, 0.0, 0, NO_MODS))
         assertEquals(1, target.texts)
 
         // replaced by another screen, closed by Lua
@@ -105,16 +105,16 @@ class LuaScreenTest {
     @Test
     fun `screens close without Lua on unload and cannot be reopened from close`() {
         val host = V2Host()
-        val ext = host.load(pkg("shop", setOf("screens", "channels"), files = *arrayOf("main.lua" to screens)))
+        val ext = host.load(pkg("shop", setOf("screens", "channels"), files = arrayOf("main.lua" to screens)))
         ext.onChannelMessage("open", """{"what":"main","title":"Shop"}""")
         val session = host.shown!!
         ext.stop() // disconnect / unload
-        assertEquals(LuaScreenSession.State.CLOSED, session.state)
+        assertEquals(ScreenState.CLOSED, session.state)
         session.removed()
         assertFalse(log(ext).any { it.startsWith("close") })
 
         // trapping the player: reopening from the close callback is an error
-        val trap = host.load(pkg("trap", setOf("screens", "channels"), files = *arrayOf("main.lua" to """
+        val trap = host.load(pkg("trap", setOf("screens", "channels"), files = arrayOf("main.lua" to """
             kiln.ui.screen("t", { close = function() kiln.ui.open("t") end })
             kiln.net.channel("open"):on(function() kiln.ui.open("t") end)
             assert(not pcall(kiln.ui.open, "t")) -- not while loading
@@ -126,14 +126,14 @@ class LuaScreenTest {
         assertTrue(host.failures.last().contains("close callback"), host.failures.toString())
 
         // without the permission there is no screen API at all
-        val plain = host.load(pkg("plain", setOf("widgets"), files = *arrayOf("main.lua" to "assert(kiln.ui.screen == nil and kiln.ui.open == nil)")))
+        val plain = host.load(pkg("plain", setOf("widgets"), files = arrayOf("main.lua" to "assert(kiln.ui.screen == nil and kiln.ui.open == nil)")))
         assertTrue(plain.alive)
     }
 
     @Test
     fun `a script error in a screen callback unloads the extension and closes the screen`() {
         val host = V2Host()
-        val ext = host.load(pkg("x", setOf("screens", "channels"), files = *arrayOf("main.lua" to """
+        val ext = host.load(pkg("x", setOf("screens", "channels"), files = arrayOf("main.lua" to """
             kiln.ui.screen("s", { render = function(self, g, s) error("boom") end })
             kiln.net.channel("open"):on(function() kiln.ui.open("s") end)
         """.trimIndent())))
@@ -170,7 +170,7 @@ class LuaScreenTest {
     @Test
     fun `text inputs keep player edits, apply script changes and report valid edits`() {
         val host = V2Host()
-        val ext = host.load(pkg("form", setOf("screens", "channels"), files = *arrayOf("main.lua" to inputs)))
+        val ext = host.load(pkg("form", setOf("screens", "channels"), files = arrayOf("main.lua" to inputs)))
         val g = ext.runtime.globals
         ext.onChannelMessage("open", "{}")
         val session = host.shown!!
@@ -207,27 +207,27 @@ class LuaScreenTest {
         assertEquals("1", g.get("state").get("amount").tojstring())
 
         // focus: click into a field focuses it (no Lua click), outside blurs and goes to Lua; Tab cycles
-        assertTrue(session.mouseClicked(20.0, 15.0, 0, none))
+        assertTrue(session.mouseClicked(20.0, 15.0, 0, NO_MODS))
         assertSame(q, session.focused?.box)
         assertTrue(q.focused)
         assertTrue(g.get("clicks").isnil())
-        assertEquals(KeyResult.HANDLED, session.keyPressed("tab", none))
+        assertEquals(KeyResult.HANDLED, session.keyPressed("tab", NO_MODS))
         assertSame(amount, session.focused?.box)
         assertFalse(q.focused)
-        assertEquals(KeyResult.HANDLED, session.keyPressed("tab", Mods(true, false, false)))
+        assertEquals(KeyResult.HANDLED, session.keyPressed("tab", ModifierKeys(true, false, false)))
         assertSame(q, session.focused?.box)
-        session.mouseClicked(300.0, 200.0, 0, none)
+        session.mouseClicked(300.0, 200.0, 0, NO_MODS)
         assertNull(session.focused)
         assertEquals(1, g.get("clicks").toint())
 
         // clipped part of a field is not clickable
-        session.mouseClicked(100.0, 105.0, 0, none)
+        session.mouseClicked(100.0, 105.0, 0, NO_MODS)
         assertNull(session.focused)
-        session.mouseClicked(20.0, 105.0, 0, none)
+        session.mouseClicked(20.0, 105.0, 0, NO_MODS)
         assertSame(clipped, session.focused?.box)
 
         // a field not declared in a frame disappears and loses focus
-        session.mouseClicked(20.0, 45.0, 0, none)
+        session.mouseClicked(20.0, 45.0, 0, NO_MODS)
         assertSame(amount, session.focused?.box)
         g.set("hideAmount", org.luaj.vm2.LuaValue.TRUE)
         session.render(target, 0, 0)
@@ -239,7 +239,7 @@ class LuaScreenTest {
     @Test
     fun `text inputs only while rendering, ids unique per frame`() {
         val host = V2Host()
-        val ext = host.load(pkg("x", setOf("screens", "channels"), files = *arrayOf("main.lua" to """
+        val ext = host.load(pkg("x", setOf("screens", "channels"), files = arrayOf("main.lua" to """
             kiln.ui.screen("s", {
               render = function(self, g, s)
                 s:textInput("a", { x = 0, y = 0, w = 10 })
@@ -252,7 +252,7 @@ class LuaScreenTest {
         ext.onChannelMessage("open", "{}")
         val session = host.shown!!
         session.render(CountingTarget(), 0, 0)
-        assertTrue(session.mouseClicked(150.0, 150.0, 0, none))
+        assertTrue(session.mouseClicked(150.0, 150.0, 0, NO_MODS))
         ext.runtime.globals.set("twice", org.luaj.vm2.LuaValue.TRUE)
         session.render(CountingTarget(), 0, 0)
         assertFalse(ext.alive)
@@ -327,7 +327,7 @@ class LuaScreenTest {
     @Test
     fun `benchmark - a 50 tile shop renders well within the frame budget`() {
         val host = V2Host()
-        host.load(pkg("ui_kit", files = *arrayOf("main.lua" to uiKit)))
+        host.load(pkg("ui_kit", files = arrayOf("main.lua" to uiKit)))
         val ext = host.load(pkg("shop", setOf("screens", "channels"), listOf("ui_kit"), "main.lua" to shop.replace("ITEM", "\"${item("minecraft:emerald")}\"")))
         ext.onChannelMessage("open", "{}")
         val session = host.shown!!
@@ -368,7 +368,7 @@ class LuaScreenTest {
     @Test
     fun `Shift+Escape always closes, Lua is not asked`() {
         val host = V2Host()
-        val ext = host.load(pkg("trap", setOf("screens", "channels"), files = *arrayOf("main.lua" to trapScreen)))
+        val ext = host.load(pkg("trap", setOf("screens", "channels"), files = arrayOf("main.lua" to trapScreen)))
         ext.onChannelMessage("open", "{}")
         assertEquals(KeyResult.HANDLED, host.escape())
         assertEquals(KeyResult.CLOSE, host.escape(shift = true))
@@ -381,7 +381,7 @@ class LuaScreenTest {
     @Test
     fun `the third Escape within 1,5 s closes even if Lua swallows it`() {
         val host = V2Host()
-        val ext = host.load(pkg("trap", setOf("screens", "channels"), files = *arrayOf("main.lua" to trapScreen)))
+        val ext = host.load(pkg("trap", setOf("screens", "channels"), files = arrayOf("main.lua" to trapScreen)))
         ext.onChannelMessage("open", "{}")
         // slow presses: Lua keeps handling Escape (e.g. closing one modal after another)
         repeat(4) {
@@ -403,7 +403,7 @@ class LuaScreenTest {
     @Test
     fun `after a forced close the extension cannot reopen its screen for a while`() {
         val host = V2Host()
-        val ext = host.load(pkg("trap", setOf("screens", "channels"), files = *arrayOf("main.lua" to trapScreen)))
+        val ext = host.load(pkg("trap", setOf("screens", "channels"), files = arrayOf("main.lua" to trapScreen)))
         ext.onChannelMessage("open", "{}")
         // a normal close (Lua does not swallow) does not block
         ext.runtime.call(ext.runtime.globals.get("kiln").get("ui").get("close"))

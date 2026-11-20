@@ -3,23 +3,13 @@ package dev.kiln.client.entity.model
 import org.joml.Matrix4f
 import org.joml.Vector3f
 
-/** Animated offsets of one bone (Bedrock units: degrees, pixels, factors), added to the rest pose. */
-data class BonePose(val rotation: Vec3d = Vec3d.ZERO, val position: Vec3d = Vec3d.ZERO, val scale: Vec3d = Vec3d.ONE)
-
-/** One emitted vertex in model space (pixels, Minecraft axes: Bedrock x mirrored) with texture coordinates 0..1. */
-data class GeoVertex(val x: Double, val y: Double, val z: Double, val u: Float, val v: Float, val nx: Float, val ny: Float, val nz: Float)
-
 /**
  * Turns a [GeoModel] in a pose into quads. Bedrock to Minecraft (as Blockbench / GeckoLib do): x is mirrored,
  * rotations around x and y change sign, rotations apply Z, then Y, then X around the bone pivot.
  */
 object GeoMesh {
-    fun interface Sink {
-        fun vertex(x: Float, y: Float, z: Float, u: Float, v: Float, nx: Float, ny: Float, nz: Float)
-    }
-
     /** Emits 4 vertices per visible cube face (counter-clockwise seen from outside) into [sink]. */
-    fun emit(model: GeoModel, poses: Map<String, BonePose>, sink: Sink) {
+    fun emit(model: GeoModel, poses: Map<String, BonePose>, sink: GeoMeshSink) {
         val matrices = HashMap<String, Matrix4f>()
         for (bone in model.bones) {
             val m = Matrix4f(bone.parent?.let { matrices[it] } ?: Matrix4f())
@@ -45,7 +35,7 @@ object GeoMesh {
         return result
     }
 
-    private fun emitCube(model: GeoModel, cube: GeoCube, bone: Matrix4f, sink: Sink) {
+    private fun emitCube(model: GeoModel, cube: GeoCube, bone: Matrix4f, sink: GeoMeshSink) {
         val m = Matrix4f(bone)
         if (cube.rotation != null) {
             val p = cube.pivot ?: Vec3d.ZERO

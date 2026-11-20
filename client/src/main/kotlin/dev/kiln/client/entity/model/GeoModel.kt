@@ -5,45 +5,6 @@ import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 
-/** A Bedrock geometry or animation file Kiln cannot use; the message names the problem. */
-class GeoException(message: String) : Exception(message)
-
-data class Vec3d(val x: Double, val y: Double, val z: Double) {
-    operator fun plus(o: Vec3d) = Vec3d(x + o.x, y + o.y, z + o.z)
-
-    companion object {
-        val ZERO = Vec3d(0.0, 0.0, 0.0)
-        val ONE = Vec3d(1.0, 1.0, 1.0)
-    }
-}
-
-/** Texture coordinates of a cube: Bedrock box UV (one corner, the usual cube layout) or explicit per face. */
-sealed interface GeoUv {
-    data class Box(val u: Double, val v: Double, val mirror: Boolean) : GeoUv
-
-    /** Face name (`north`, `south`, `east`, `west`, `up`, `down`) -> (u, v, width, height); missing faces are not drawn. */
-    data class Faces(val faces: Map<String, DoubleArray>) : GeoUv
-}
-
-data class GeoCube(
-    val origin: Vec3d,
-    val size: Vec3d,
-    val inflate: Double,
-    val uv: GeoUv,
-    /** Own rotation of the cube around [pivot] (Bedrock degrees). */
-    val pivot: Vec3d?,
-    val rotation: Vec3d?,
-)
-
-data class GeoBone(
-    val name: String,
-    val parent: String?,
-    val pivot: Vec3d,
-    /** Rest rotation (Bedrock degrees, applied Z, Y, X). */
-    val rotation: Vec3d,
-    val cubes: List<GeoCube>,
-)
-
 /**
  * A Bedrock entity geometry (`*.geo.json`, format 1.12+, as exported by Blockbench). Bones are ordered so that every
  * parent comes before its children. Coordinates stay in Bedrock space (pixels, y up); [GeoMesh] converts.

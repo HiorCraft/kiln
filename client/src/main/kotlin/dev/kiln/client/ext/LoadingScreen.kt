@@ -1,7 +1,9 @@
 package dev.kiln.client.ext
 
-import dev.kiln.client.ext.ExtensionHandshake.Phase
-import dev.kiln.client.ext.ExtensionHandshake.Status
+import dev.kiln.client.ext.handshake.ExtensionHandshake
+import dev.kiln.client.ext.handshake.HandshakeItem
+import dev.kiln.client.ext.handshake.HandshakeItemStatus
+import dev.kiln.client.ext.handshake.HandshakePhase
 import net.minecraft.client.gui.GuiGraphicsExtractor
 import net.minecraft.client.gui.components.Button
 import net.minecraft.client.gui.screens.Screen
@@ -31,7 +33,7 @@ class LoadingScreen(
 
     override fun tick() {
         tickConnection()
-        cancel?.active = handshake.phase != Phase.DONE && handshake.phase != Phase.FAILED
+        cancel?.active = handshake.phase != HandshakePhase.DONE && handshake.phase != HandshakePhase.FAILED
     }
 
     override fun extractBackground(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int, a: Float) {
@@ -61,16 +63,16 @@ class LoadingScreen(
         pose.popMatrix()
 
         val status = when (handshake.phase) {
-            Phase.DONE -> "Fertig"
-            Phase.FAILED -> "Fehler: " + (handshake.error ?: "unbekannt")
-            Phase.DECLINED -> "Abgebrochen"
-            Phase.LOADING -> "Erweiterungen werden gestartet…"
-            Phase.RELOADING -> "Ressourcen werden geladen…"
+            HandshakePhase.DONE -> "Fertig"
+            HandshakePhase.FAILED -> "Fehler: " + (handshake.error ?: "unbekannt")
+            HandshakePhase.DECLINED -> "Abgebrochen"
+            HandshakePhase.LOADING -> "Erweiterungen werden gestartet…"
+            HandshakePhase.RELOADING -> "Ressourcen werden geladen…"
             else -> "Erweiterungen werden heruntergeladen…"
         }
         val statusColor = when (handshake.phase) {
-            Phase.DONE -> Glyphs.GREEN
-            Phase.FAILED -> Glyphs.RED
+            HandshakePhase.DONE -> Glyphs.GREEN
+            HandshakePhase.FAILED -> Glyphs.RED
             else -> 0xFFC8CDD3.toInt()
         }
         graphics.centeredText(font, font.plainSubstrByWidth(status, width - 20), width / 2, 44, statusColor)
@@ -82,7 +84,7 @@ class LoadingScreen(
         graphics.fill(barX - 1, barY - 1, barX + barW + 1, barY + 7, 0xFF2A3342.toInt())
         val filled = (barW * shownProgress).toInt()
         graphics.fillGradient(barX, barY, barX + filled, barY + 6, 0xFF4FA3FF.toInt(), 0xFF2D6FD6.toInt())
-        if (handshake.phase != Phase.DONE && handshake.phase != Phase.FAILED && filled > 8) {
+        if (handshake.phase != HandshakePhase.DONE && handshake.phase != HandshakePhase.FAILED && filled > 8) {
             val shimmer = barX + ((now / 4) % (filled + 30)).toInt() - 30
             graphics.fill(maxOf(barX, shimmer), barY, minOf(barX + filled, shimmer + 30), barY + 6, 0x40FFFFFF)
         }
@@ -97,7 +99,7 @@ class LoadingScreen(
         listBottom = height - 34
         val items = handshake.items
         if (!manualScroll) {
-            val active = items.indexOfFirst { it.status != Status.DONE && it.status != Status.CACHED }
+            val active = items.indexOfFirst { it.status != HandshakeItemStatus.DONE && it.status != HandshakeItemStatus.CACHED }
             if (active >= 0) scroll = (active * STRIDE - (listBottom - listTop - ROW) / 2).toDouble()
         }
         clampScroll()
@@ -138,25 +140,25 @@ class LoadingScreen(
         return true
     }
 
-    private fun drawItem(graphics: GuiGraphicsExtractor, item: ExtensionHandshake.Item, x: Int, y: Int, w: Int, now: Long) {
+    private fun drawItem(graphics: GuiGraphicsExtractor, item: HandshakeItem, x: Int, y: Int, w: Int, now: Long) {
         graphics.fill(x, y, x + w, y + ROW, 0x50000000)
         icons.draw(graphics, font, item.info.id, item.info.name, x + 3, y + 3, ROW - 6)
         graphics.text(font, font.plainSubstrByWidth(item.info.name, w / 2), x + ROW + 2, y + (ROW - font.lineHeight) / 2 + 1, 0xFFFFFFFF.toInt(), true)
         val (text, color) = when (item.status) {
-            Status.QUEUED -> "wartet" to 0xFF8A9099.toInt()
-            Status.CACHED -> "aus dem Cache" to 0xFF9FC9FF.toInt()
-            Status.DOWNLOADING -> "lädt ${if (item.info.size == 0) 0 else item.received * 100 / item.info.size} %" to 0xFF9FC9FF.toInt()
-            Status.VERIFYING -> "prüft" to 0xFFE3C26B.toInt()
-            Status.STARTING -> "startet" to 0xFFE3C26B.toInt()
-            Status.DONE -> "fertig" to Glyphs.GREEN
-            Status.FAILED -> "Fehler" to Glyphs.RED
+            HandshakeItemStatus.QUEUED -> "wartet" to 0xFF8A9099.toInt()
+            HandshakeItemStatus.CACHED -> "aus dem Cache" to 0xFF9FC9FF.toInt()
+            HandshakeItemStatus.DOWNLOADING -> "lädt ${if (item.info.size == 0) 0 else item.received * 100 / item.info.size} %" to 0xFF9FC9FF.toInt()
+            HandshakeItemStatus.VERIFYING -> "prüft" to 0xFFE3C26B.toInt()
+            HandshakeItemStatus.STARTING -> "startet" to 0xFFE3C26B.toInt()
+            HandshakeItemStatus.DONE -> "fertig" to Glyphs.GREEN
+            HandshakeItemStatus.FAILED -> "Fehler" to Glyphs.RED
         }
-        val busy = item.status == Status.DOWNLOADING || item.status == Status.VERIFYING || item.status == Status.STARTING
+        val busy = item.status == HandshakeItemStatus.DOWNLOADING || item.status == HandshakeItemStatus.VERIFYING || item.status == HandshakeItemStatus.STARTING
         val pulse = if (busy) (0.6 + 0.4 * sin(now / 150.0)).toFloat() else 1f
         val shown = (color and 0x00FFFFFF) or ((255 * pulse).toInt().coerceIn(0, 255) shl 24)
         graphics.text(font, text, x + w - font.width(text) - 6, y + (ROW - font.lineHeight) / 2 + 1, shown, true)
-        if (item.status == Status.DONE) Glyphs.check(graphics, x + w - font.width(text) - 18, y + (ROW - 8) / 2)
-        if (item.status == Status.DOWNLOADING && item.info.size > 0) {
+        if (item.status == HandshakeItemStatus.DONE) Glyphs.check(graphics, x + w - font.width(text) - 18, y + (ROW - 8) / 2)
+        if (item.status == HandshakeItemStatus.DOWNLOADING && item.info.size > 0) {
             val pw = (w - ROW - 4) * item.received / item.info.size
             graphics.fill(x + ROW + 2, y + ROW - 3, x + ROW + 2 + pw, y + ROW - 1, 0xFF4FA3FF.toInt())
         }

@@ -2,6 +2,10 @@ package dev.kiln.client.lua
 
 import dev.kiln.client.lua.V2Host.Companion.item
 import dev.kiln.client.lua.V2Host.Companion.pkg
+import dev.kiln.client.lua.items.InventorySlot
+import dev.kiln.client.lua.items.ItemHandle
+import dev.kiln.client.lua.items.LuaItems
+import dev.kiln.client.lua.sandbox.LuaScriptException
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -34,8 +38,8 @@ class LuaImportTest {
     @Test
     fun `exports are read-only for importers, recursively`() {
         val host = V2Host()
-        val kit = host.load(pkg("ui_kit", files = *arrayOf("main.lua" to kitSource)))
-        host.load(pkg("shop", deps = listOf("ui_kit"), files = *arrayOf("main.lua" to """
+        val kit = host.load(pkg("ui_kit", files = arrayOf("main.lua" to kitSource)))
+        host.load(pkg("shop", deps = listOf("ui_kit"), files = arrayOf("main.lua" to """
             local ui = kiln.import("ui_kit")
             assert(ui.version == 1 and ui.add(2, 3) == 5)
             assert(not pcall(function() ui.version = 2 end))
@@ -77,11 +81,11 @@ class LuaImportTest {
     @Test
     fun `export only while loading and import needs an export`() {
         val host = V2Host()
-        val lazy = host.load(pkg("lazy", setOf("channels"), files = *arrayOf("main.lua" to """
+        val lazy = host.load(pkg("lazy", setOf("channels"), files = arrayOf("main.lua" to """
             kiln.net.channel("late"):on(function() kiln.export({}) end)
         """.trimIndent())))
         assertThrows(LuaScriptException::class.java) {
-            host.load(pkg("user", deps = listOf("lazy"), files = *arrayOf("main.lua" to "kiln.import('lazy')")))
+            host.load(pkg("user", deps = listOf("lazy"), files = arrayOf("main.lua" to "kiln.import('lazy')")))
         }
         lazy.onChannelMessage("late", "{}")
         assertFalse(lazy.alive)
@@ -91,7 +95,7 @@ class LuaImportTest {
     @Test
     fun `permissions cannot be borrowed through an import`() {
         val host = V2Host()
-        val kit = host.load(pkg("ui_kit", setOf("channels", "keybinds", "toasts"), files = *arrayOf("main.lua" to """
+        val kit = host.load(pkg("ui_kit", setOf("channels", "keybinds", "toasts"), files = arrayOf("main.lua" to """
             local ch = kiln.net.channel("x")
             local stored
             kiln.keys.bind("go", { press = function() if stored then stored() end end })
@@ -131,7 +135,7 @@ class LuaImportTest {
         assertTrue(rich.alive && kit.alive)
 
         // principal without channels calling into an extension with channels through a callback chain fails
-        val kit2 = host.load(pkg("kit2", setOf("keybinds"), files = *arrayOf("main.lua" to """
+        val kit2 = host.load(pkg("kit2", setOf("keybinds"), files = arrayOf("main.lua" to """
             local stored
             kiln.keys.bind("go", { press = function() stored() end })
             kiln.export({ register = function(fn) stored = fn end })
@@ -150,7 +154,7 @@ class LuaImportTest {
     @Test
     fun `the caller pays the instruction budget of imported code`() {
         val host = V2Host()
-        val kit = host.load(pkg("ui_kit", files = *arrayOf("main.lua" to kitSource)))
+        val kit = host.load(pkg("ui_kit", files = arrayOf("main.lua" to kitSource)))
         val shop = host.load(pkg("shop", setOf("channels"), listOf("ui_kit"), "main.lua" to """
             local ui = kiln.import("ui_kit")
             kiln.net.channel("work"):on(function(m) result = ui.spin(m.n) end)
@@ -172,7 +176,7 @@ class LuaImportTest {
     @Test
     fun `functions of an unloaded API extension refuse to run`() {
         val host = V2Host()
-        val kit = host.load(pkg("ui_kit", files = *arrayOf("main.lua" to kitSource)))
+        val kit = host.load(pkg("ui_kit", files = arrayOf("main.lua" to kitSource)))
         val shop = host.load(pkg("shop", setOf("channels"), listOf("ui_kit"), "main.lua" to """
             local ui = kiln.import("ui_kit")
             kiln.net.channel("go"):on(function() ui.add(1, 2) end)
@@ -186,7 +190,7 @@ class LuaImportTest {
     @Test
     fun `item handles are opaque, cached and limited`() {
         val host = V2Host()
-        val ext = host.load(pkg("shop", setOf("widgets"), files = *arrayOf("main.lua" to """
+        val ext = host.load(pkg("shop", setOf("widgets"), files = arrayOf("main.lua" to """
             local a = kiln.items.decode("${item("minecraft:diamond_sword")}")
             assert(a and a.id == "minecraft:diamond_sword" and a.name == "diamond sword" and a.maxStack == 64)
             assert(kiln.items.decode("${item("minecraft:diamond_sword")}") == a) -- cached
@@ -219,7 +223,7 @@ class LuaImportTest {
 
         // drawing a handle uses the full stack path; tooltips only where allowed
         val target = CountingTarget()
-        val w = LuaExtension(pkg("draw", setOf("widgets"), files = *arrayOf("main.lua" to """
+        val w = LuaExtension(pkg("draw", setOf("widgets"), files = arrayOf("main.lua" to """
             kiln.ui.widget("w", { render = function(self, g, w)
               g:item(handle, 0, 0, { size = 32, count = 1500 })
               g:item("minecraft:stone", 0, 0)
@@ -237,8 +241,8 @@ class LuaImportTest {
     fun `inventory needs its permission and returns copies`() {
         val host = V2Host()
         host.inventorySlots = listOf(InventorySlot(0, FakeItem("minecraft:dirt"), 12), InventorySlot(40, FakeItem("minecraft:shield"), 1))
-        host.load(pkg("a", files = *arrayOf("main.lua" to "assert(kiln.player().inventory == nil)")))
-        val b = host.load(pkg("b", setOf("inventory"), files = *arrayOf("main.lua" to """
+        host.load(pkg("a", files = arrayOf("main.lua" to "assert(kiln.player().inventory == nil)")))
+        val b = host.load(pkg("b", setOf("inventory"), files = arrayOf("main.lua" to """
             local inv = kiln.player().inventory()
             assert(#inv == 2 and inv[1].slot == 0 and inv[1].count == 12 and inv[1].id == "minecraft:dirt")
             assert(inv[2].slot == 40 and inv[2].handle.id == "minecraft:shield")
@@ -247,10 +251,10 @@ class LuaImportTest {
         """.trimIndent())))
         assertTrue(b.alive)
         // through an import, the caller needs the permission too
-        host.load(pkg("inv_api", setOf("inventory"), files = *arrayOf("main.lua" to """
+        host.load(pkg("inv_api", setOf("inventory"), files = arrayOf("main.lua" to """
             kiln.export({ get = function() return kiln.player().inventory() end })
         """.trimIndent())))
-        val user = host.load(pkg("user", deps = listOf("inv_api"), files = *arrayOf("main.lua" to """
+        val user = host.load(pkg("user", deps = listOf("inv_api"), files = arrayOf("main.lua" to """
             local ok, err = pcall(kiln.import("inv_api").get)
             assert(not ok and err:find("permission 'inventory' missing", 1, true), err)
         """.trimIndent())))
@@ -261,7 +265,7 @@ class LuaImportTest {
     fun `api version and helpers`() {
         val host = V2Host()
         host.clockSeconds = 12.5
-        val ext = host.load(pkg("x", files = *arrayOf("main.lua" to """
+        val ext = host.load(pkg("x", files = arrayOf("main.lua" to """
             assert(kiln.apiVersion == 2)
             assert(kiln.clock() == 12.5)
             assert(kiln.ui.viewport() == nil) -- the test host has no window

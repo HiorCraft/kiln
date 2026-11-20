@@ -54,6 +54,16 @@ object ScrollMath {
     }
 
     /**
+     * Offset after pressing the scrollbar at [y] (relative to the viewport top): unchanged on the thumb (a drag
+     * follows), otherwise [offsetForTrackClick].
+     */
+    fun offsetForPress(offset: Double, y: Double, contentHeight: Int, viewportHeight: Int): Double {
+        val thumbTop = thumbY(offset, contentHeight, viewportHeight)
+        val onThumb = y >= thumbTop && y < thumbTop + thumbHeight(contentHeight, viewportHeight)
+        return if (onThumb) offset else offsetForTrackClick(y, contentHeight, viewportHeight)
+    }
+
+    /**
      * Smallest change of [offset] that makes the range [top]..[bottom] (content coordinates) visible in the viewport
      * (`top` wins if the range is taller than the viewport).
      */

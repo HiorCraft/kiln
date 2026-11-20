@@ -1,0 +1,468 @@
+package dev.kiln.client.ext.handshake
+
+import dev.kiln.client.ext.ExtensionNamespaces
+import dev.kiln.client.ext.ExtensionPackage
+import dev.kiln.client.ext.ExtensionPackageException
+import dev.kiln.client.ext.consent.ConsentListState
+import dev.kiln.client.ext.consent.PermissionTexts
+import dev.kiln.protocol.message.ExtensionChunk
+import dev.kiln.protocol.message.ExtensionInfo
+import dev.kiln.protocol.message.ExtensionManifest
+import dev.kiln.protocol.message.ExtensionRequest
+import dev.kiln.protocol.message.ExtensionsReady
+import dev.kiln.protocol.PROTOCOL_VERSION
+import dev.kiln.protocol.ProtocolLimits
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import java.io.ByteArrayOutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
+
+class ExtensionHandshakeTest {
+    private fun zip(id: String, padding: Int = 0, level: Int = 0): ByteArray {
+        val out = ByteArrayOutputStream()
+        ZipOutputStream(out).use { z ->
+            z.setLevel(level)
+            z.putNextEntry(ZipEntry("extension.json"))
+            z.write("""{"id":"$id","version":"1","name":"$id","permissions":["hud"]}""".toByteArray())
+            z.putNextEntry(ZipEntry("main.lua"))
+            z.write(ByteArray(padding) { 'x'.code.toByte() }.let { "--".toByteArray() + it })
+        }
+        return out.toByteArray()
+    }
+
+    private fun info(id: String, data: ByteArray) = ExtensionInfo(id, "1", id, Sha256.of(data), data.size, listOf("hud"))
+
+    private fun chunks(info: ExtensionInfo, data: ByteArray): List<ExtensionChunk> {
+        val size = ProtocolLimits.MAX_EXTENSION_CHUNK_BYTES
+        return (0 until info.chunkCount).map { ExtensionChunk(info.id, it, info.chunkCount, data.copyOfRange(it * size, minOf(data.size, (it + 1) * size))) }
+    }
+
+    private val a = zip("a")
+    private val b = zip("b", ProtocolLimits.MAX_EXTENSION_CHUNK_BYTES + 100)
+    private val manifest = ExtensionManifest(listOf(info("a", a), info("b", b)))
+
+    private fun runToEnd(h: ExtensionHandshake) {
+        repeat(20) { h.tick() }
+    }
+
+    @Test
+    fun `nothing is requested before consent, then download, verify and start`() {
+        val io = FakeHandshakeIo(cache = mutableMapOf("a" to a))
+        val h = ExtensionHandshake(io)
+        h.onWelcome(PROTOCOL_VERSION)
+        h.onManifest(manifest)
+        assertEquals(HandshakePhase.CONSENT, h.phase)
+        assertTrue(io.sent.isEmpty(), "no ExtensionRequest before consent")
+        assertEquals(listOf("consent:[a, b]"), io.events)
+
+        h.consent(true)
+        assertEquals(HandshakePhase.DOWNLOADING, h.phase)
+        assertEquals(listOf(ExtensionRequest(listOf("b"))), io.sent) // only what is not cached
+        assertEquals(HandshakeItemStatus.CACHED, h.items[0].status)
+        assertEquals(HandshakeItemStatus.DOWNLOADING, h.items[1].status)
+        assertEquals(a.size.toLong(), h.receivedBytes)
+
+        val parts = chunks(manifest.extensions[1], b)
+        h.onChunk(parts[0])
+        assertTrue(h.receivedBytes > a.size)
+        h.onChunk(parts[1])
+        assertEquals(HandshakePhase.LOADING, h.phase)
+        assertTrue("store:b" in io.events)
+
+        h.tick() // verify a
+        assertEquals(HandshakeItemStatus.STARTING, h.items[0].status)
+        runToEnd(h)
+        assertEquals(HandshakePhase.DONE, h.phase)
+        assertEquals(ExtensionsReady(true), io.sent.last())
+        assertEquals(listOf("begin", "load:a", "load:b"), io.events.filter { it == "begin" || it.startsWith("load:") })
+        assertTrue(h.items.all { it.status == HandshakeItemStatus.DONE })
+        assertEquals(1f, h.progress)
+    }
+
+    @Test
+    fun `trusted servers skip the consent screen`() {
+        val io = FakeHandshakeIo(trusted = true, cache = mutableMapOf("a" to a, "b" to b))
+        val h = ExtensionHandshake(io)
+        h.onWelcome(PROTOCOL_VERSION)
+        h.onManifest(manifest)
+        assertFalse(io.events.any { it.startsWith("consent") })
+        assertEquals(ExtensionRequest(emptyList()), io.sent.first())
+        runToEnd(h)
+        assertEquals(HandshakePhase.DONE, h.phase)
+    }
+
+    @Test
+    fun `declining disconnects without downloading anything`() {
+        val io = FakeHandshakeIo()
+        val h = ExtensionHandshake(io)
+        h.onWelcome(PROTOCOL_VERSION)
+        h.onManifest(manifest)
+        h.consent(false)
+        h.consent(true) // too late, ignored
+        assertEquals(HandshakePhase.DECLINED, h.phase)
+        assertTrue(io.sent.isEmpty())
+        assertEquals("disconnect:Server-Erweiterungen abgelehnt", io.events.last())
+    }
+
+    @Test
+    fun `failures are reported to the server`() {
+        // tampered download
+        val io = FakeHandshakeIo()
+        val h = ExtensionHandshake(io)
+        h.onWelcome(PROTOCOL_VERSION)
+        h.onManifest(ExtensionManifest(listOf(info("a", a))))
+        h.consent(true)
+        h.onChunk(ExtensionChunk("a", 0, 1, a.copyOf().also { it[10] = (it[10].toInt() xor 0x55).toByte() }))
+        assertEquals(HandshakePhase.FAILED, h.phase)
+        assertEquals(HandshakeItemStatus.FAILED, h.items[0].status)
+        assertFalse((io.sent.last() as ExtensionsReady).ok)
+
+        // script error while starting
+        val io2 = FakeHandshakeIo(trusted = true, cache = mutableMapOf("a" to a, "b" to b)).also { it.failLoad = "b" }
+        val h2 = ExtensionHandshake(io2)
+        h2.onWelcome(PROTOCOL_VERSION)
+        h2.onManifest(manifest)
+        runToEnd(h2)
+        assertEquals(HandshakePhase.FAILED, h2.phase)
+        assertEquals(ExtensionsReady(false, "b: boom"), io2.sent.last())
+        assertTrue("unload" in io2.events)
+
+        // wrong protocol / unexpected order
+        val h3 = ExtensionHandshake(FakeHandshakeIo())
+        h3.onManifest(manifest)
+        assertEquals(HandshakePhase.FAILED, h3.phase)
+    }
+
+    @Test
+    fun `cancel on the loading screen disconnects`() {
+        val io = FakeHandshakeIo(trusted = true)
+        val h = ExtensionHandshake(io)
+        h.onWelcome(PROTOCOL_VERSION)
+        h.onManifest(manifest)
+        h.cancel()
+        assertEquals(HandshakePhase.DECLINED, h.phase)
+        assertTrue(io.events.last().startsWith("disconnect:"))
+    }
+
+    // ---- consent list ---------------------------------------------------------------------------------------
+
+    @Test
+    fun `accordion toggles, animates the chevron and changes the layout`() {
+        val list = ConsentListState(3, headerHeight = 20, detailHeight = 50, gap = 2)
+        list.setViewport(100)
+        assertEquals(20 * 3 + 2 * 2, list.contentHeight)
+        assertEquals(0, list.maxScroll)
+        assertEquals(1, list.headerAt(25.0))
+        assertEquals(-1, list.headerAt(21.0)) // in the gap
+
+        list.toggle(0)
+        assertTrue(list.isExpanded(0))
+        assertEquals(70, list.entryHeight(0))
+        assertEquals(72, list.entryTop(1))
+        assertEquals(-1, list.headerAt(30.0)) // details of entry 0, not a header
+        assertEquals(1, list.headerAt(75.0))
+
+        assertEquals(0f, list.chevron(0))
+        list.animate(75f)
+        assertEquals(0.5f, list.chevron(0), 0.01f)
+        list.animate(1000f)
+        assertEquals(1f, list.chevron(0))
+        list.toggle(0)
+        list.animate(1000f)
+        assertEquals(0f, list.chevron(0))
+    }
+
+    @Test
+    fun `scrolling is clamped to the content`() {
+        val list = ConsentListState(10, headerHeight = 20, detailHeight = 50, gap = 0)
+        list.setViewport(100)
+        assertEquals(100, list.maxScroll)
+        list.scrollBy(-50.0)
+        assertEquals(0.0, list.scroll)
+        list.scrollBy(500.0)
+        assertEquals(100.0, list.scroll)
+        assertEquals(9, list.headerAt(99.0))
+        list.toggle(9)
+        list.scrollBy(1000.0)
+        assertEquals(150.0, list.scroll)
+        list.toggle(9) // collapsing shrinks the content: scroll is clamped again
+        assertEquals(100.0, list.scroll)
+        list.setViewport(1000)
+        assertEquals(0.0, list.scroll)
+    }
+
+    @Test
+    fun `permission rows list every permission with its state`() {
+        val rows = PermissionTexts.rows(listOf("hud", "widgets"))
+        assertEquals(listOf("widgets", "keybinds", "hud", "channels", "toasts", "screens", "inventory", "resources"), rows.map { it.permission })
+        assertEquals(listOf(true, false, true, false, false, false, false, false), rows.map { it.requested })
+        assertEquals("Ressourcen: Modelle, Texturen, Sounds, Schriften, Shader", rows.last().label)
+        assertTrue(rows.all { it.label.isNotBlank() && it.label != it.permission })
+        assertEquals(listOf("UI-Kit (ui_kit)", "icons"), PermissionTexts.dependencyLabels(listOf("ui_kit", "icons"), mapOf("ui_kit" to "UI-Kit")))
+        assertEquals(0, PermissionTexts.dependencyHeight(0))
+        assertTrue(PermissionTexts.dependencyHeight(2) > PermissionTexts.dependencyHeight(1))
+    }
+
+    private fun depZip(id: String, deps: String): ByteArray {
+        val out = ByteArrayOutputStream()
+        ZipOutputStream(out).use { z ->
+            z.putNextEntry(ZipEntry("extension.json"))
+            z.write("""{"id":"$id","version":"1","name":"$id","dependencies":[$deps]}""".toByteArray())
+            z.putNextEntry(ZipEntry("main.lua"))
+            z.write("--".toByteArray())
+        }
+        return out.toByteArray()
+    }
+
+    @Test
+    fun `dependencies must match the manifest and a failing dependency fails its dependents`() {
+        val kit = depZip("ui_kit", "")
+        val shop = depZip("shop", "{\"id\":\"ui_kit\",\"version\":\">=1\"}")
+        fun infoOf(id: String, data: ByteArray, deps: List<String>) = ExtensionInfo(id, "1", id, Sha256.of(data), data.size, emptyList(), dependencies = deps)
+
+        // matching dependencies: loaded in manifest order
+        val io = FakeHandshakeIo(trusted = true, cache = mutableMapOf("ui_kit" to kit, "shop" to shop))
+        val ok = ExtensionHandshake(io)
+        ok.onWelcome(PROTOCOL_VERSION)
+        ok.onManifest(ExtensionManifest(listOf(infoOf("ui_kit", kit, emptyList()), infoOf("shop", shop, listOf("ui_kit")))))
+        repeat(10) { ok.tick() }
+        assertEquals(HandshakePhase.DONE, ok.phase)
+        assertEquals(listOf("load:ui_kit", "load:shop"), io.events.filter { it.startsWith("load:") })
+
+        // the manifest claims no dependency, the package has one
+        val io2 = FakeHandshakeIo(trusted = true, cache = mutableMapOf("ui_kit" to kit, "shop" to shop))
+        val mismatch = ExtensionHandshake(io2)
+        mismatch.onWelcome(PROTOCOL_VERSION)
+        mismatch.onManifest(ExtensionManifest(listOf(infoOf("ui_kit", kit, emptyList()), infoOf("shop", shop, emptyList()))))
+        repeat(10) { mismatch.tick() }
+        assertEquals(HandshakePhase.FAILED, mismatch.phase)
+        assertTrue(mismatch.error!!.contains("dependencies"), mismatch.error)
+
+        // ui_kit fails to load -> shop fails too, the reason names it
+        val io3 = FakeHandshakeIo(trusted = true, cache = mutableMapOf("ui_kit" to kit, "shop" to shop)).also { it.failLoad = "ui_kit" }
+        val failing = ExtensionHandshake(io3)
+        failing.onWelcome(PROTOCOL_VERSION)
+        failing.onManifest(ExtensionManifest(listOf(infoOf("ui_kit", kit, emptyList()), infoOf("shop", shop, listOf("ui_kit")))))
+        repeat(10) { failing.tick() }
+        assertEquals(HandshakePhase.FAILED, failing.phase)
+        assertTrue(failing.error!!.contains("needed by shop"), failing.error)
+        assertEquals(HandshakeItemStatus.FAILED, failing.items[1].status)
+        assertEquals(listOf("shop"), failing.dependentsOf("ui_kit"))
+    }
+
+    @Test
+    fun `reserved namespaces fail the handshake before consent or download`() {
+        for (id in listOf("minecraft", "realms", "kiln", "fabric", "fabric_api", "c", "brigadier", "java", "mojang")) {
+            val io = FakeHandshakeIo(trusted = true)
+            val h = ExtensionHandshake(io)
+            h.onWelcome(PROTOCOL_VERSION)
+            val data = zip(id)
+            h.onManifest(ExtensionManifest(listOf(info("a", a), info(id, data))))
+            assertEquals(HandshakePhase.FAILED, h.phase, id)
+            val ready = io.sent.single() as ExtensionsReady
+            assertFalse(ready.ok)
+            assertTrue(ready.error!!.contains("reserved namespace") && ready.error!!.contains("'$id'"), ready.error)
+            assertTrue(io.events.none { it.startsWith("consent") || it == "progress" }, io.events.toString())
+        }
+    }
+
+    @Test
+    fun `namespaces of the player's resource packs and mod assets fail the handshake`() {
+        val io = FakeHandshakeIo(trusted = true)
+        io.packNamespaces += "faithful"
+        val h = ExtensionHandshake(io)
+        h.onWelcome(PROTOCOL_VERSION)
+        val data = zip("faithful")
+        h.onManifest(ExtensionManifest(listOf(info("faithful", data))))
+        assertEquals(HandshakePhase.FAILED, h.phase)
+        val ready = io.sent.single() as ExtensionsReady
+        assertTrue(ready.error!!.contains("resource"), ready.error)
+    }
+
+    @Test
+    fun `ids of installed Fabric mods fail the handshake`() {
+        val io = FakeHandshakeIo(trusted = true)
+        io.mods += "sodium"
+        val h = ExtensionHandshake(io)
+        h.onWelcome(PROTOCOL_VERSION)
+        val data = zip("sodium")
+        h.onManifest(ExtensionManifest(listOf(info("sodium", data))))
+        assertEquals(HandshakePhase.FAILED, h.phase)
+        val ready = io.sent.single() as ExtensionsReady
+        assertTrue(ready.error!!.contains("installed mod"), ready.error)
+    }
+
+    @Test
+    fun `a package whose extension json claims a reserved id is rejected`() {
+        val error = org.junit.jupiter.api.assertThrows<ExtensionPackageException> { ExtensionPackage.read(zip("minecraft")) }
+        assertTrue(error.message!!.contains("reserved namespace"), error.message)
+    }
+
+    @Test
+    fun `textures and translation keys must not replace existing ones`() {
+        val existingTextures = setOf("minecraft:textures/gui/title/minecraft.png")
+        ExtensionNamespaces.checkTexture("shop", "shop:textures/icon.png", { it in existingTextures }, { false })
+        val texture = org.junit.jupiter.api.assertThrows<ExtensionPackageException> {
+            ExtensionNamespaces.checkTexture("shop", "shop:textures/icon.png", { false }, { it == "shop:textures/icon.png" })
+        }
+        assertTrue(texture.message!!.contains("already exists"), texture.message)
+        org.junit.jupiter.api.assertThrows<ExtensionPackageException> {
+            ExtensionNamespaces.checkTexture("shop", "shop:textures/icon.png", { it == "shop:textures/icon.png" }, { false })
+        }
+
+        val language = setOf("gui.done", "key.forward")
+        // an extension called "gui" cannot rename the vanilla "Done" button ...
+        val key = org.junit.jupiter.api.assertThrows<ExtensionPackageException> {
+            ExtensionNamespaces.checkTranslation("gui", "gui.done", emptySet()) { it in language }
+        }
+        assertTrue(key.message!!.contains("gui.done"), key.message)
+        // ... but may add new keys, and overwrite its own (en_us first, then the selected language)
+        ExtensionNamespaces.checkTranslation("gui", "gui.shop_title", emptySet()) { it in language }
+        ExtensionNamespaces.checkTranslation("shop", "shop.title", setOf("shop.title")) { true }
+    }
+
+    // ---- v6: resource reload before ExtensionsReady ------------------------------------------------------------
+
+    private fun resourceZip(id: String): ByteArray {
+        val out = ByteArrayOutputStream()
+        ZipOutputStream(out).use { z ->
+            z.putNextEntry(ZipEntry("extension.json"))
+            z.write("""{"id":"$id","version":"1","name":"$id","permissions":["resources"]}""".toByteArray())
+            z.putNextEntry(ZipEntry("assets/$id/models/item/a.json"))
+            z.write("{}".toByteArray())
+        }
+        return out.toByteArray()
+    }
+
+    private fun resourceInfo(id: String, data: ByteArray) = ExtensionInfo(id, "1", id, Sha256.of(data), data.size, listOf("resources"))
+
+    @Test
+    fun `reloads resources before ready`() {
+        val r = resourceZip("r")
+        val io = FakeHandshakeIo(trusted = true, cache = mutableMapOf("a" to a, "r" to r))
+        val h = ExtensionHandshake(io)
+        h.onWelcome(PROTOCOL_VERSION)
+        h.onManifest(ExtensionManifest(listOf(info("a", a), resourceInfo("r", r))))
+        runToEnd(h)
+        assertEquals(HandshakePhase.RELOADING, h.phase)
+        assertFalse(io.sent.contains(ExtensionsReady(true)), "ready only after the reload")
+        // resources are mounted before any Lua runs, so main.lua can use its own sounds and fonts
+        assertEquals(listOf("reload:[r/models/item/a.json]"), io.events.filter { it.startsWith("load:") || it.startsWith("reload") })
+        io.reloadDone!!(null)
+        runToEnd(h)
+        assertEquals(listOf("reload:[r/models/item/a.json]", "load:a", "load:r"), io.events.filter { it.startsWith("load:") || it.startsWith("reload") })
+        assertEquals(HandshakePhase.DONE, h.phase)
+        assertEquals(ExtensionsReady(true), io.sent.last())
+    }
+
+    @Test
+    fun `the loading screen stays visible for a moment before the resource reload covers it`() {
+        val r = resourceZip("r")
+        val io = FakeHandshakeIo(trusted = true, cache = mutableMapOf("r" to r))
+        var now = 1_000L
+        val h = ExtensionHandshake(io, clock = { now }, minProgressMillis = 1_500)
+        h.onWelcome(PROTOCOL_VERSION)
+        h.onManifest(ExtensionManifest(listOf(resourceInfo("r", r))))
+        runToEnd(h)
+        assertTrue(io.events.none { it.startsWith("reload") }, io.events.toString())
+        assertEquals(HandshakePhase.LOADING, h.phase)
+        now += 1_500
+        runToEnd(h)
+        assertTrue("reload:[r/models/item/a.json]" in io.events, io.events.toString())
+    }
+
+    @Test
+    fun `the bar reaches 100 percent and stays there before ready is reported`() {
+        val r = resourceZip("r")
+        val io = FakeHandshakeIo(trusted = true, cache = mutableMapOf("r" to r))
+        var now = 1_000L
+        val h = ExtensionHandshake(io, clock = { now }, minFinishMillis = 600)
+        h.onWelcome(PROTOCOL_VERSION)
+        h.onManifest(ExtensionManifest(listOf(resourceInfo("r", r))))
+        runToEnd(h)
+        val beforeReload = h.progress
+        assertTrue(beforeReload in 0.5f..0.9f, "downloaded and verified: $beforeReload")
+        io.covered = true // Minecraft's reload overlay still fades out
+        io.reloadDone!!(null)
+        runToEnd(h)
+        assertEquals(1f, h.progress)
+        now += 5_000
+        runToEnd(h)
+        assertTrue(io.sent.none { it is ExtensionsReady }, "held while covered: ${io.sent}")
+        io.covered = false
+        runToEnd(h)
+        assertTrue(io.sent.none { it is ExtensionsReady }, io.sent.toString())
+        now += 600
+        runToEnd(h)
+        assertEquals(ExtensionsReady(true), io.sent.last())
+        assertEquals(HandshakePhase.DONE, h.phase)
+    }
+
+    @Test
+    fun `reload error fails the handshake`() {
+        val r = resourceZip("r")
+        val io = FakeHandshakeIo(trusted = true, cache = mutableMapOf("r" to r))
+        val h = ExtensionHandshake(io)
+        h.onWelcome(PROTOCOL_VERSION)
+        h.onManifest(ExtensionManifest(listOf(resourceInfo("r", r))))
+        runToEnd(h)
+        io.reloadDone!!("boom")
+        assertEquals(HandshakePhase.FAILED, h.phase)
+        assertEquals(ExtensionsReady(false, "Ressourcen konnten nicht geladen werden: boom"), io.sent.last())
+        assertTrue("unload" in io.events)
+    }
+
+    @Test
+    fun `no assets skips the reload`() {
+        val io = FakeHandshakeIo(trusted = true, cache = mutableMapOf("a" to a, "b" to b))
+        val h = ExtensionHandshake(io)
+        h.onWelcome(PROTOCOL_VERSION)
+        h.onManifest(manifest)
+        runToEnd(h)
+        assertEquals(HandshakePhase.DONE, h.phase)
+        assertFalse(io.events.any { it.startsWith("reload") })
+    }
+
+    @Test
+    fun `resources of a previous server are dropped when the new one has none`() {
+        val io = FakeHandshakeIo(trusted = true, cache = mutableMapOf("a" to a, "b" to b))
+        io.mounted = true
+        val h = ExtensionHandshake(io)
+        h.onWelcome(PROTOCOL_VERSION)
+        h.onManifest(manifest)
+        runToEnd(h)
+        assertEquals(HandshakePhase.RELOADING, h.phase)
+        assertTrue("reload:[]" in io.events, io.events.toString())
+        io.reloadDone!!(null)
+        runToEnd(h)
+        assertEquals(HandshakePhase.DONE, h.phase)
+    }
+
+    @Test
+    fun `the total unpacked size of all packages is capped`() {
+        // compressed: the announced (packed) size passes the manifest check, the unpacked contents do not
+        val c = zip("packed", ProtocolLimits.MAX_EXTENSION_CHUNK_BYTES + 100, level = 9)
+        val io = FakeHandshakeIo(trusted = true, cache = mutableMapOf("packed" to c))
+        val h = ExtensionHandshake(io, maxTotalUnpackedBytes = ProtocolLimits.MAX_EXTENSION_CHUNK_BYTES.toLong())
+        h.onWelcome(PROTOCOL_VERSION)
+        h.onManifest(ExtensionManifest(listOf(info("packed", c))))
+        runToEnd(h)
+        assertEquals(HandshakePhase.FAILED, h.phase)
+        val ready = io.sent.last() as ExtensionsReady
+        assertTrue(ready.error!!.contains("unpacked"), ready.error)
+    }
+
+    @Test
+    fun `a manifest announcing more than the total cap fails before consent`() {
+        val io = FakeHandshakeIo()
+        val h = ExtensionHandshake(io)
+        h.onWelcome(PROTOCOL_VERSION)
+        val huge = (1..9).map { ExtensionInfo("big$it", "1", "big$it", ByteArray(32), ProtocolLimits.MAX_EXTENSION_PACKAGE_BYTES, listOf("hud")) }
+        h.onManifest(ExtensionManifest(huge))
+        assertEquals(HandshakePhase.FAILED, h.phase)
+        assertTrue(io.events.none { it.startsWith("consent") }, io.events.toString())
+    }
+}

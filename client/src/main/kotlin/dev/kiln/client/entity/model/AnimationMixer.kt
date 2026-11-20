@@ -1,19 +1,14 @@
 package dev.kiln.client.entity.model
 
-import dev.kiln.protocol.AnimationMode
-
-/** A server animation playing on an entity (`PlayAnimation`), started at [start] seconds of the client clock. */
-data class ActiveAnimation(val name: String, val mode: Int, val speed: Float, val start: Double)
+import dev.kiln.protocol.message.AnimationMode
 
 /**
  * Combines the state animation (`idle`/`walk`, looping, chosen by the client from the movement) with the server's
  * animations: every bone a server animation animates takes that animation's values (the latest one wins), all
- * other bones keep the state animation. ONCE animations past their length are reported in [Result.finished].
+ * other bones keep the state animation. ONCE animations past their length are reported in [MixResult.finished].
  */
 object AnimationMixer {
-    class Result(val poses: Map<String, BonePose>, val finished: List<ActiveAnimation>)
-
-    fun mix(animations: GeoAnimations, state: String?, stateTime: Double, active: List<ActiveAnimation>, now: Double): Result {
+    fun mix(animations: GeoAnimations, state: String?, stateTime: Double, active: List<ActiveAnimation>, now: Double): MixResult {
         val poses = HashMap<String, BonePose>()
         state?.let { animations.animations[it] }?.let { apply(it, loopTime(it, stateTime), poses) }
         val finished = ArrayList<ActiveAnimation>()
@@ -33,7 +28,7 @@ object AnimationMixer {
             }
             apply(animation, time, poses)
         }
-        return Result(poses, finished)
+        return MixResult(poses, finished)
     }
 
     private fun loopTime(animation: GeoAnimation, time: Double): Double =

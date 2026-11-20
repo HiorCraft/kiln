@@ -3,7 +3,7 @@ package dev.kiln.client.creative
 import dev.kiln.client.mixin.CreativeModeTabsAccessor
 import dev.kiln.client.screen.Components
 import dev.kiln.client.screen.ItemStacks
-import dev.kiln.protocol.CreativeTabData
+import dev.kiln.protocol.message.CreativeTabData
 import dev.kiln.protocol.ItemStackData
 import dev.kiln.protocol.ProtocolLimits
 import net.fabricmc.fabric.api.creativetab.v1.CreativeModeTabEvents

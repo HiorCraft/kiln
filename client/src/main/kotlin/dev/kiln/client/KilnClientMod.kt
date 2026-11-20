@@ -3,11 +3,11 @@ package dev.kiln.client
 import dev.kiln.client.creative.KilnCreativeTabs
 import dev.kiln.client.entity.KilnEntityAppearances
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientEntityEvents
-import dev.kiln.client.ext.ExtensionCache
-import dev.kiln.client.ext.TrustStore
+import dev.kiln.client.ext.handshake.ExtensionCache
+import dev.kiln.client.ext.trust.TrustStore
 import dev.kiln.client.keybind.KeybindStore
 import dev.kiln.client.keybind.ServerKeybinds
-import dev.kiln.client.lua.LuaSandbox
+import dev.kiln.client.lua.sandbox.LuaSandbox
 import dev.kiln.client.net.KilnPayload
 import dev.kiln.protocol.CHANNEL
 import dev.kiln.protocol.PROTOCOL_VERSION
@@ -41,10 +41,7 @@ object KilnClientMod : ClientModInitializer {
         private set
 
     override fun onInitializeClient() {
-        PayloadTypeRegistry.serverboundConfiguration().register(KilnPayload.TYPE, KilnPayload.CODEC)
-        PayloadTypeRegistry.clientboundConfiguration().register(KilnPayload.TYPE, KilnPayload.CODEC)
-        PayloadTypeRegistry.serverboundPlay().register(KilnPayload.TYPE, KilnPayload.CODEC)
-        PayloadTypeRegistry.clientboundPlay().register(KilnPayload.TYPE, KilnPayload.CODEC)
+        registerPayloadTypes()
 
         val loader = FabricLoader.getInstance()
         ServerKeybinds.init(KeybindStore(loader.configDir.resolve("kiln-keybinds.json")))
@@ -55,7 +52,23 @@ object KilnClientMod : ClientModInitializer {
         KilnCreativeTabs.register()
         client = KilnClientImpl(cache, trust)
 
-        // configuration phase: handshake and extension delivery (handlers run on the network thread)
+        registerConfigurationPhase()
+        registerPlayPhase()
+        // HUD layers of extensions: above the world overlays, below every vanilla HUD element
+        HudElementRegistry.attachElementAfter(VanillaHudElements.MISC_OVERLAYS, Identifier.fromNamespaceAndPath("kiln", "extensions"), client.extensions)
+
+        logger.info("kiln client initialized (protocol {}, channel {})", PROTOCOL_VERSION, CHANNEL)
+    }
+
+    private fun registerPayloadTypes() {
+        PayloadTypeRegistry.serverboundConfiguration().register(KilnPayload.TYPE, KilnPayload.CODEC)
+        PayloadTypeRegistry.clientboundConfiguration().register(KilnPayload.TYPE, KilnPayload.CODEC)
+        PayloadTypeRegistry.serverboundPlay().register(KilnPayload.TYPE, KilnPayload.CODEC)
+        PayloadTypeRegistry.clientboundPlay().register(KilnPayload.TYPE, KilnPayload.CODEC)
+    }
+
+    /** Handshake and extension delivery (handlers run on the network thread). */
+    private fun registerConfigurationPhase() {
         ClientConfigurationNetworking.registerGlobalReceiver(KilnPayload.TYPE) { payload, context ->
             context.client().execute { client.onConfigurationPayload(payload.data) }
         }
@@ -63,11 +76,12 @@ object KilnClientMod : ClientModInitializer {
             minecraft.execute { client.onConfigurationStart(listener) }
         }
         ClientConfigurationConnectionEvents.DISCONNECT.register { _, minecraft -> onMainThread(minecraft) { client.onDisconnect() } }
+    }
 
-        // play phase; the global receiver makes Fabric announce kiln:main via minecraft:register on join
+    /** Play phase; the global receiver makes Fabric announce kiln:main via minecraft:register on join. */
+    private fun registerPlayPhase() {
         ClientPlayNetworking.registerGlobalReceiver(KilnPayload.TYPE) { payload, context ->
-            val minecraft = context.client()
-            if (minecraft.isSameThread) client.onPayload(payload.data) else minecraft.execute { client.onPayload(payload.data) }
+            onMainThread(context.client()) { client.onPayload(payload.data) }
         }
         ClientPlayConnectionEvents.JOIN.register { _, _, minecraft -> onMainThread(minecraft) { client.onJoin() } }
         ClientPlayConnectionEvents.DISCONNECT.register { _, minecraft -> onMainThread(minecraft) { client.onDisconnect() } }
@@ -76,11 +90,6 @@ object KilnClientMod : ClientModInitializer {
         ClientEntityEvents.ENTITY_LOAD.register { entity, _ ->
             if (KilnEntityAppearances.get(entity.id) != null) entity.refreshDimensions()
         }
-
-        // HUD layers of extensions: above the world overlays, below every vanilla HUD element
-        HudElementRegistry.attachElementAfter(VanillaHudElements.MISC_OVERLAYS, Identifier.fromNamespaceAndPath("kiln", "extensions"), client.extensions)
-
-        logger.info("kiln client initialized (protocol {}, channel {})", PROTOCOL_VERSION, CHANNEL)
     }
 
     private fun onMainThread(minecraft: Minecraft, action: () -> Unit) {

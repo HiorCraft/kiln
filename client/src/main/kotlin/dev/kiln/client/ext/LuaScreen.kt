@@ -1,21 +1,18 @@
 package dev.kiln.client.ext
 
 import com.mojang.blaze3d.platform.InputConstants
-import dev.kiln.client.lua.DrawTarget
-import dev.kiln.client.lua.LuaScreenSession
-import dev.kiln.client.lua.ScreenView
-import dev.kiln.client.lua.TextBox
+import dev.kiln.client.lua.screen.KeyResult
+import dev.kiln.client.lua.screen.LuaScreenSession
+import dev.kiln.client.lua.screen.ModifierKeys
+import dev.kiln.client.lua.screen.ScreenView
+import dev.kiln.client.lua.screen.TextBox
 import dev.kiln.client.screen.MouseButtons
-import dev.kiln.client.screen.NumericInput
-import dev.kiln.client.screen.WidgetColors
-import dev.kiln.protocol.NumericRange
 import net.minecraft.client.gui.GuiGraphicsExtractor
-import net.minecraft.client.gui.components.EditBox
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.input.CharacterEvent
+import net.minecraft.client.input.InputWithModifiers
 import net.minecraft.client.input.KeyEvent
 import net.minecraft.client.input.MouseButtonEvent
-import net.minecraft.client.input.MouseButtonInfo
 import net.minecraft.network.chat.Component
 
 /**
@@ -24,7 +21,8 @@ import net.minecraft.network.chat.Component
  * text inputs are drawn inside the Lua render call (so they are layered and clipped like Lua drawing).
  *
  * Keys: the focused text input first (editing keys), then Lua `key`; Tab cycles inputs, Escape closes unless Lua
- * handled it; Shift+Escape and a third Escape within 1.5 s always close (see [LuaScreenSession.keyPressed]). The screen closes on disconnect (the runtime replaces it) without running Lua.
+ * handled it; Shift+Escape and a third Escape within 1.5 s always close (see [LuaScreenSession.keyPressed]). The
+ * screen closes on disconnect (the runtime replaces it) without running Lua.
  */
 class LuaScreen(val session: LuaScreenSession, private val textures: ExtensionTextures) : Screen(Component.empty()), ScreenView {
     /** Set when the screen goes away without Lua being told (disconnect, extension unloaded). */
@@ -56,9 +54,7 @@ class LuaScreen(val session: LuaScreenSession, private val textures: ExtensionTe
 
     // ---- input --------------------------------------------------------------------------------------------
 
-    private fun mods(event: KeyEvent) = LuaScreenSession.Mods(event.hasShiftDown(), event.hasControlDown(), event.hasAltDown())
-
-    private fun mods(event: MouseButtonEvent) = LuaScreenSession.Mods(event.hasShiftDown(), event.hasControlDown(), event.hasAltDown())
+    private fun mods(event: InputWithModifiers) = ModifierKeys(event.hasShiftDown(), event.hasControlDown(), event.hasAltDown())
 
     override fun keyPressed(event: KeyEvent): Boolean {
         val name = LuaScreenSession.shortKeyName(InputConstants.getKey(event).name)
@@ -66,12 +62,12 @@ class LuaScreen(val session: LuaScreenSession, private val textures: ExtensionTe
         val box = session.focused?.box as? EditBoxTextBox
         if (name != "escape" && box != null && box.edit.keyPressed(event)) return true
         return when (session.keyPressed(name, mods(event))) {
-            LuaScreenSession.KeyResult.HANDLED -> true
-            LuaScreenSession.KeyResult.CLOSE -> {
+            KeyResult.HANDLED -> true
+            KeyResult.CLOSE -> {
                 onClose()
                 true
             }
-            LuaScreenSession.KeyResult.PASS -> false
+            KeyResult.PASS -> false
         }
     }
 
@@ -117,86 +113,5 @@ class LuaScreen(val session: LuaScreenSession, private val textures: ExtensionTe
 
     // ---- ScreenView ---------------------------------------------------------------------------------------
 
-    override fun createTextBox(onEdit: (String) -> Unit): TextBox = EditBoxTextBox(onEdit)
-
-    /** Vanilla [EditBox] as a Lua text input: numeric filtering like server text fields, red text when invalid. */
-    inner class EditBoxTextBox(private val onEdit: (String) -> Unit) : TextBox {
-        private var numeric: NumericRange? = null
-        private var applying = false
-
-        val edit: EditBox = object : EditBox(font, 0, 0, 0, 0, Component.empty()) {
-            override fun insertText(input: String) {
-                val range = numeric ?: return super.insertText(input)
-                val oldValue = value
-                val oldCursor = cursorPosition
-                applying = true
-                try {
-                    super.insertText(input)
-                    if (!NumericInput.isPartial(value, range)) {
-                        value = oldValue
-                        setCursorPosition(oldCursor)
-                        setHighlightPos(oldCursor)
-                    }
-                } finally {
-                    applying = false
-                }
-                if (value != oldValue) changed(value)
-            }
-        }
-
-        init {
-            edit.setResponder { if (!applying) changed(it) }
-        }
-
-        private fun changed(value: String) {
-            updateColor()
-            onEdit(value)
-        }
-
-        private fun updateColor() {
-            val range = numeric
-            edit.setTextColor(if (range != null && !NumericInput.reportable(edit.value, range)) WidgetColors.INVALID else EditBox.DEFAULT_TEXT_COLOR)
-        }
-
-        override val value: String get() = edit.value
-
-        override fun setValue(value: String) {
-            applying = true
-            try {
-                edit.value = value
-            } finally {
-                applying = false
-            }
-            updateColor()
-        }
-
-        override var focused: Boolean
-            get() = edit.isFocused
-            set(v) {
-                edit.isFocused = v
-            }
-
-        override fun configure(maxLength: Int, placeholder: String, numeric: NumericRange?, enabled: Boolean) {
-            this.numeric = numeric
-            edit.setMaxLength(maxLength)
-            edit.setHint(Component.literal(placeholder))
-            edit.setEditable(enabled)
-            edit.active = enabled
-            updateColor()
-        }
-
-        override fun place(x: Int, y: Int, width: Int, height: Int) {
-            edit.setRectangle(width, height, x, y)
-        }
-
-        override fun draw(target: DrawTarget, mouseX: Int, mouseY: Int) {
-            val graphics = (target as? GuiDrawTarget)?.graphics ?: return
-            edit.extractRenderState(graphics, mouseX, mouseY, 0f)
-        }
-
-        override fun mouseClicked(x: Double, y: Double, button: Int, doubleClick: Boolean) {
-            val event = currentEvent ?: MouseButtonEvent(x, y, MouseButtonInfo(1, 0))
-            edit.mouseClicked(event, doubleClick)
-        }
-    }
+    override fun createTextBox(onEdit: (String) -> Unit): TextBox = EditBoxTextBox(font, { currentEvent }, onEdit)
 }

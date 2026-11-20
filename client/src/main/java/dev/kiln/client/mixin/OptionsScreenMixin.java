@@ -1,7 +1,7 @@
 package dev.kiln.client.mixin;
 
 import com.llamalad7.mixinextras.sugar.Local;
-import dev.kiln.client.ext.TrustManagementScreen;
+import dev.kiln.client.ext.trust.TrustManagementScreen;
 import net.minecraft.client.gui.layouts.GridLayout;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.options.OptionsScreen;

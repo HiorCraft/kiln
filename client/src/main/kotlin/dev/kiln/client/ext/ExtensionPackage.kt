@@ -11,9 +11,6 @@ import java.io.IOException
 import java.util.zip.ZipException
 import java.util.zip.ZipInputStream
 
-/** A package violates the format rules; [message] is shown to the player (and sent to the server). */
-class ExtensionPackageException(message: String) : Exception(message)
-
 /**
  * A verified extension package, read entirely into memory. Nothing of it is ever written to disk under its entry
  * names (the cache stores the zip as `<sha256>.zip`), so path traversal ("zip slip") cannot touch the file system;

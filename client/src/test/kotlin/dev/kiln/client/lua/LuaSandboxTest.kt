@@ -1,5 +1,8 @@
 package dev.kiln.client.lua
 
+import dev.kiln.client.lua.sandbox.LuaLimits
+import dev.kiln.client.lua.sandbox.LuaRuntime
+import dev.kiln.client.lua.sandbox.LuaScriptException
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows

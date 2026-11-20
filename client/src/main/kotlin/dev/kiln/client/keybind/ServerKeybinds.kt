@@ -4,10 +4,10 @@ import com.mojang.blaze3d.platform.InputConstants
 import dev.kiln.client.mixin.KeyMappingAccessor
 import dev.kiln.client.mixin.KeyMappingCategoryAccessor
 import dev.kiln.client.mixin.OptionsAccessor
-import dev.kiln.protocol.KeyPressed
-import dev.kiln.protocol.KeyReleased
-import dev.kiln.protocol.KeybindDeclaration
-import dev.kiln.protocol.ServerboundMessage
+import dev.kiln.protocol.message.KeyPressed
+import dev.kiln.protocol.message.KeyReleased
+import dev.kiln.protocol.message.KeybindDeclaration
+import dev.kiln.protocol.message.ServerboundMessage
 import net.minecraft.client.KeyMapping
 import net.minecraft.client.Minecraft
 import net.minecraft.client.input.KeyEvent
@@ -47,26 +47,15 @@ object ServerKeybinds {
     private const val SERVER_PREFIX = "kiln.server."
     private const val EXTENSION_PREFIX = "kiln.ext."
 
+    /** Extension keybinds are sorted after the server's own ones. */
+    private const val EXTENSION_ORDER_BASE = 1000
+
     private lateinit var store: KeybindStore
 
     private val categories = HashMap<String, KeyMapping.Category>()
-    private val active = LinkedHashMap<String, Active>()
+    private val active = LinkedHashMap<String, ActiveKeybind>()
     private val edges = KeyEdgeTracker()
     private var server: String = ""
-
-    /** Owner of an extension keybind; receives its press/release edges. */
-    interface Handler {
-        fun onKey(id: String, pressed: Boolean)
-    }
-
-    private class Active(
-        val storeId: String,
-        val mapping: KeyMapping,
-        val defaultKeyName: String,
-        val extension: String?,
-        val localId: String,
-        val handler: Handler?,
-    )
 
     fun init(store: KeybindStore) {
         this.store = store
@@ -89,7 +78,11 @@ object ServerKeybinds {
                 logger.warn("Ignoring duplicate server keybind '{}'", declaration.id)
                 return@forEachIndexed
             }
-            val entry = create(declaration.id, SERVER_PREFIX + declaration.id, declaration.name, declaration.category, declaration.defaultKey, index, null, declaration.id, null)
+            val entry = create(
+                storeId = declaration.id, name = SERVER_PREFIX + declaration.id, displayName = declaration.name,
+                categoryName = declaration.category, defaultKeyName = declaration.defaultKey, order = index,
+                extension = null, localId = declaration.id, handler = null,
+            )
             active[declaration.id] = entry
             created += entry.mapping
         }
@@ -101,11 +94,14 @@ object ServerKeybinds {
      * Registers keybind [id] of Lua extension [extension] (display [name], [defaultKey] as `InputConstants` name) in
      * category [category]. Edges go to [handler].
      */
-    fun registerExtension(extension: String, id: String, name: String, category: String, defaultKey: String, handler: Handler) {
+    fun registerExtension(extension: String, id: String, name: String, category: String, defaultKey: String, handler: KeybindHandler) {
         val key = "ext:$extension:$id"
         require(key !in active) { "keybind '$id' is already bound" }
-        val index = active.values.count { it.extension == extension }
-        val entry = create(key, "$EXTENSION_PREFIX$extension.$id", name, category, defaultKey, 1000 + index, extension, id, handler)
+        val order = EXTENSION_ORDER_BASE + active.values.count { it.extension == extension }
+        val entry = create(
+            storeId = key, name = "$EXTENSION_PREFIX$extension.$id", displayName = name, categoryName = category,
+            defaultKeyName = defaultKey, order = order, extension = extension, localId = id, handler = handler,
+        )
         active[key] = entry
         addMappings(listOf(entry.mapping))
     }
@@ -116,13 +112,17 @@ object ServerKeybinds {
     /** Removes all keybinds (disconnect); bindings are persisted first. */
     fun clear() {
         remove { true }
-        clearCategories()
+        unregisterCategories(categories.values.toSet())
     }
 
+    /**
+     * Creates the mapping of keybind [storeId] with its stored key, or [defaultKeyName] unless another keybind uses
+     * that key already.
+     */
     private fun create(
         storeId: String, name: String, displayName: String, categoryName: String, defaultKeyName: String, order: Int,
-        extension: String?, localId: String, handler: Handler?,
-    ): Active {
+        extension: String?, localId: String, handler: KeybindHandler?,
+    ): ActiveKeybind {
         val defaultKey = parseKey(defaultKeyName)
         DynamicTranslations.put(name, displayName)
         val taken = Minecraft.getInstance().options.keyMappings.map { it.saveString() }
@@ -136,25 +136,25 @@ object ServerKeybinds {
             logger.info("Keybind '{}' starts unbound: its default key {} is already used", storeId, defaultKey.name)
             mapping.setKey(InputConstants.UNKNOWN)
         }
-        return Active(storeId, mapping, defaultKey.name, extension, localId, handler)
+        return ActiveKeybind(storeId, mapping, defaultKey.name, extension, localId, handler)
     }
 
     private fun addMappings(created: List<KeyMapping>) {
-        if (created.isNotEmpty()) {
-            val options = Minecraft.getInstance().options
-            (options as OptionsAccessor).`kiln$setKeyMappings`(options.keyMappings + created)
-        }
+        if (created.isNotEmpty()) setKeyMappings(Minecraft.getInstance().options.keyMappings + created)
         KeyMapping.resetMapping()
     }
 
-    private fun remove(filter: (Active) -> Boolean) {
+    private fun setKeyMappings(mappings: Array<KeyMapping>) {
+        (Minecraft.getInstance().options as OptionsAccessor).`kiln$setKeyMappings`(mappings)
+    }
+
+    private fun remove(filter: (ActiveKeybind) -> Boolean) {
         val removedEntries = active.filterValues(filter)
         if (removedEntries.isEmpty()) return
-        for (entry in removedEntries.values) store.set(server, entry.storeId, entry.mapping.saveString(), entry.defaultKeyName)
+        removedEntries.values.forEach(::persist)
         store.save()
         val removed = removedEntries.values.map { it.mapping }.toSet()
-        val options = Minecraft.getInstance().options
-        (options as OptionsAccessor).`kiln$setKeyMappings`(options.keyMappings.filterNot { it in removed }.toTypedArray())
+        setKeyMappings(Minecraft.getInstance().options.keyMappings.filterNot { it in removed }.toTypedArray())
         val all = KeyMappingAccessor.`kiln$getAll`()
         for ((key, entry) in removedEntries) {
             if (all[entry.mapping.name] === entry.mapping) all.remove(entry.mapping.name)
@@ -162,17 +162,13 @@ object ServerKeybinds {
             active.remove(key)
             edges.forget(key)
         }
-        // drop categories that have no mapping left
         val used = active.values.mapTo(HashSet()) { it.mapping.category }
-        val unused = categories.filterValues { it !in used }
-        if (unused.isNotEmpty()) {
-            KeyMappingCategoryAccessor.`kiln$getSortOrder`().removeIf { it in unused.values }
-            unused.forEach { (path, category) ->
-                DynamicTranslations.remove(category.id().toLanguageKey("key.category"))
-                categories.remove(path)
-            }
-        }
+        unregisterCategories(categories.values.filterTo(HashSet()) { it !in used })
         KeyMapping.resetMapping()
+    }
+
+    private fun persist(entry: ActiveKeybind) {
+        store.set(server, entry.storeId, entry.mapping.saveString(), entry.defaultKeyName)
     }
 
     /**
@@ -180,7 +176,7 @@ object ServerKeybinds {
      * [sendToServer]), extension keybinds go to their handler.
      */
     fun tick(sendToServer: Boolean, send: (ServerboundMessage) -> Unit) {
-        val fired = ArrayList<Pair<Active, Boolean>>()
+        val fired = ArrayList<Pair<ActiveKeybind, Boolean>>()
         for ((key, entry) in active) {
             val edge = edges.update(key, entry.mapping.isDown) ?: continue
             fired += entry to edge
@@ -205,16 +201,11 @@ object ServerKeybinds {
         for (entry in active.values) if (entry.mapping.matchesMouse(event)) entry.mapping.isDown = down
     }
 
-    private fun persist() {
-        if (!::store.isInitialized) return
-        for (entry in active.values) store.set(server, entry.storeId, entry.mapping.saveString(), entry.defaultKeyName)
-    }
-
     /** Called by `OptionsMixin` before options.txt is written. */
     @JvmStatic
     fun onOptionsSave() {
         if (active.isEmpty()) return
-        persist()
+        active.values.forEach(::persist)
         store.save()
     }
 
@@ -233,19 +224,20 @@ object ServerKeybinds {
         // a category left over from an earlier session (should not happen, removal drops them) is replaced
         KeyMappingCategoryAccessor.`kiln$getSortOrder`().removeIf { it.id() == id }
         val category = KeyMapping.Category.register(id)
-        DynamicTranslations.put(category.id().toLanguageKey("key.category"), "Server: $name")
+        DynamicTranslations.put(categoryLabelKey(category), "Server: $name")
         categories[path] = category
         return category
     }
 
-    /** Unregisters the per-server categories (vanilla keeps them in `KeyMapping.Category.SORT_ORDER`). */
-    private fun clearCategories() {
-        if (categories.isEmpty()) return
-        val ours = categories.values.toSet()
-        KeyMappingCategoryAccessor.`kiln$getSortOrder`().removeIf { it in ours }
-        ours.forEach { DynamicTranslations.remove(it.id().toLanguageKey("key.category")) }
-        categories.clear()
+    /** Unregisters per-server [unused] categories (vanilla keeps them in `KeyMapping.Category.SORT_ORDER`). */
+    private fun unregisterCategories(unused: Set<KeyMapping.Category>) {
+        if (unused.isEmpty()) return
+        KeyMappingCategoryAccessor.`kiln$getSortOrder`().removeIf { it in unused }
+        unused.forEach { DynamicTranslations.remove(categoryLabelKey(it)) }
+        categories.values.removeAll(unused)
     }
+
+    private fun categoryLabelKey(category: KeyMapping.Category): String = category.id().toLanguageKey("key.category")
 
     /** Identifier-safe, collision-resistant form of a category name. */
     private fun sanitize(name: String): String {
@@ -259,13 +251,4 @@ object ServerKeybinds {
         logger.warn("Unknown default key '{}', keybind left unbound", name)
         InputConstants.UNKNOWN
     }
-}
-
-/** Default keys of server keybinds that are already in use. */
-object KeyConflicts {
-    /** `true` if [defaultKey] (a key name like `key.keyboard.w`) is bound to one of the [taken] keybinds already. */
-    fun startsUnbound(defaultKey: String, taken: Collection<String>): Boolean =
-        defaultKey != UNBOUND && defaultKey in taken
-
-    private const val UNBOUND = "key.keyboard.unknown"
 }

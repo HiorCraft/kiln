@@ -2,61 +2,29 @@ package dev.kiln.client.lua
 
 import com.google.gson.JsonParser
 import dev.kiln.client.ext.ExtensionPackage
-import dev.kiln.client.lua.LuaScreenSession.KeyResult
-import dev.kiln.client.lua.LuaScreenSession.Mods
 import dev.kiln.client.lua.V2Host.Companion.item
+import dev.kiln.client.lua.screen.KeyResult
+import dev.kiln.client.lua.screen.LuaScreenSession
+import dev.kiln.client.lua.screen.ModifierKeys
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.luaj.vm2.LuaValue
-import java.io.File
 
 /**
  * The five ui_kit demo GUIs of the example server (`fabrik`, `questlog`, `warps`, `bestenliste`, `profil`) in the real
  * sandbox with the real `ui_kit`: loading, keybind, the main flows and the render budget.
  */
 class DemoExtensionsTest {
-    private val none = Mods(false, false, false)
-
-    private fun extensionDir(id: String): File {
-        val candidates = listOf(File("../example/server/src/main/resources/extensions/$id"), File("example/server/src/main/resources/extensions/$id"))
-        return candidates.firstOrNull { it.isDirectory } ?: error("extension $id not found from ${File(".").absolutePath}")
-    }
-
-    /** Reads an extension folder like the server packs it (dependencies may be ids or {id, version} objects). */
-    private fun realPackage(id: String): ExtensionPackage {
-        val dir = extensionDir(id)
-        val files = dir.walkTopDown().filter { it.isFile }.associate { it.relativeTo(dir).invariantSeparatorsPath to it.readBytes() }
-        val json = JsonParser.parseString(files.getValue("extension.json").toString(Charsets.UTF_8)).asJsonObject
-        val permissions = json.getAsJsonArray("permissions").map { it.asString }.toSet()
-        val deps = json.getAsJsonArray("dependencies")?.map { if (it.isJsonObject) it.asJsonObject["id"].asString else it.asString } ?: emptyList()
-        return ExtensionPackage(id, json["version"].asString, json["name"].asString, "main.lua", permissions, files, deps)
-    }
 
     private fun load(id: String): Pair<V2Host, LuaExtension> {
         val host = V2Host()
-        host.load(realPackage("ui_kit"))
-        val ext = host.load(realPackage(id))
+        host.load(ExampleExtensions.pkg("ui_kit"))
+        val ext = host.load(ExampleExtensions.pkg(id))
         assertTrue(ext.alive, host.failures.toString())
         return host to ext
-    }
-
-    private fun lua(ext: LuaExtension, path: String): LuaValue = path.split('.').fold(ext.runtime.globals as LuaValue) { t, k -> t.get(k) }
-
-    private fun frame(session: LuaScreenSession, mx: Int = 0, my: Int = 0, target: CountingTarget = CountingTarget()): CountingTarget {
-        session.render(target, mx, my)
-        return target
-    }
-
-    private fun click(session: LuaScreenSession, x: Int, y: Int, mods: Mods = none): Boolean {
-        frame(session, x, y)
-        val used = session.mouseClicked(x.toDouble(), y.toDouble(), 0, mods)
-        session.mouseReleased(x.toDouble(), y.toDouble(), 0)
-        frame(session, x, y)
-        return used
     }
 
     /** Rectangle (x, y, w, h) of the last frame's region of widget [id] (with [data], if given). */
@@ -76,7 +44,7 @@ class DemoExtensionsTest {
         error("no region $id/$data")
     }
 
-    private fun clickRegion(session: LuaScreenSession, id: String, data: Any? = null, mods: Mods = none) {
+    private fun clickRegion(session: LuaScreenSession, id: String, data: Any? = null, mods: ModifierKeys = NO_MODS) {
         val r = region(session, id, data)
         click(session, r[0] + r[2] / 2, r[1] + r[3] / 2, mods)
     }
@@ -148,7 +116,7 @@ class DemoExtensionsTest {
         val r = region(session, "priority")
         val sent = host.sent.size
         frame(session, r[0] + 4, r[1] + 5)
-        session.mouseClicked((r[0] + 4).toDouble(), (r[1] + 5).toDouble(), 0, none)
+        session.mouseClicked((r[0] + 4).toDouble(), (r[1] + 5).toDouble(), 0, NO_MODS)
         frame(session, r[0] + 4, r[1] + 5)
         frame(session, r[0] + r[2] - 2, r[1] + 5)
         frame(session, r[0] + r[2] - 2, r[1] + 5)
@@ -167,7 +135,7 @@ class DemoExtensionsTest {
         ext.onChannelMessage("state", factory(machine(1), machine(2, priority = 3)))
         frame(session)
         assertEquals(2, lua(ext, "fabrik_debug.V.sel").toint())
-        assertEquals(KeyResult.HANDLED, session.keyPressed("up", none))
+        assertEquals(KeyResult.HANDLED, session.keyPressed("up", NO_MODS))
         assertEquals(1, lua(ext, "fabrik_debug.V.sel").toint())
         assertEquals(KeyResult.CLOSE, host.escape())
         assertEquals("fabrik:closed" to "{}", host.sent.last())
@@ -518,7 +486,7 @@ class DemoExtensionsTest {
     /** The resource demo as the client reads it from the wire: valid assets, own namespace, HUD label in the rune font. */
     @Test
     fun `kiln_content - assets pass the client rules and the HUD uses the rune font`() {
-        val dir = extensionDir("kiln_content")
+        val dir = ExampleExtensions.dir("kiln_content")
         val out = java.io.ByteArrayOutputStream()
         java.util.zip.ZipOutputStream(out).use { zip ->
             for (file in dir.walkTopDown().filter { it.isFile }.sortedBy { it.path }) {

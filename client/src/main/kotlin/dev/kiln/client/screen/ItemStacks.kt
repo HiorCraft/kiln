@@ -20,12 +20,6 @@ import net.minecraft.world.item.Items
 import org.slf4j.LoggerFactory
 import java.io.ByteArrayInputStream
 
-/** A decoded [ItemStackData]: the stack to draw (count 1) plus the display count (may exceed 99). */
-class DisplayItem(val stack: ItemStack, val count: Int, val failed: Boolean) {
-    /** Count text for `itemDecorations` (`null` = vanilla behaviour for a single item). */
-    val countText: String? = CountFormat.decoration(count)
-}
-
 /**
  * Decodes [ItemStackData] into vanilla stacks. Never throws: undecodable data yields a barrier (marked [DisplayItem.failed]).
  *
@@ -81,31 +75,4 @@ object ItemStacks {
     }
 
     private fun currentRegistries(): HolderLookup.Provider? = Minecraft.getInstance().connection?.registryAccess()
-}
-
-/** Per-element cache: decodes only when the element is new or its item type / NBT bytes changed (a count change is free). */
-class ItemCache {
-    private class Entry(val data: ItemStackData, val item: DisplayItem)
-
-    private val entries = HashMap<String, Entry>()
-
-    fun get(elementId: String, data: ItemStackData): DisplayItem {
-        val cached = entries[elementId]
-        if (cached != null && cached.data.itemId == data.itemId && cached.data.nbt.contentEquals(data.nbt)) {
-            if (cached.data.count == data.count) return cached.item
-            val recounted = DisplayItem(cached.item.stack, data.count.coerceAtLeast(1), cached.item.failed)
-            entries[elementId] = Entry(data, recounted)
-            return recounted
-        }
-        val item = ItemStacks.decode(data)
-        entries[elementId] = Entry(data, item)
-        return item
-    }
-
-    /** Drops entries of element ids that no longer exist. */
-    fun retain(ids: Set<String>) {
-        entries.keys.retainAll(ids)
-    }
-
-    fun clear() = entries.clear()
 }

@@ -1,5 +1,6 @@
 package dev.kiln.client.mixin;
 
+import dev.kiln.client.entity.AppearanceEntry;
 import dev.kiln.client.entity.KilnEntityAppearances;
 import net.minecraft.world.entity.EntityDimensions;
 import net.minecraft.world.entity.LivingEntity;
@@ -16,7 +17,7 @@ abstract class LivingEntityDimensionsMixin {
 	private void kiln$customSize(Pose pose, CallbackInfoReturnable<EntityDimensions> cir) {
 		// also called from entity constructors, before an id is assigned (getId() would throw)
 		if (KilnEntityAppearances.INSTANCE.isEmpty()) return;
-		KilnEntityAppearances.Entry entry = KilnEntityAppearances.INSTANCE.get(((EntityIdAccessor) this).kiln$rawId());
+		AppearanceEntry entry = KilnEntityAppearances.INSTANCE.get(((EntityIdAccessor) this).kiln$rawId());
 		if (entry != null) cir.setReturnValue(EntityDimensions.scalable(entry.getAppearance().getWidth(), entry.getAppearance().getHeight()));
 	}
 }

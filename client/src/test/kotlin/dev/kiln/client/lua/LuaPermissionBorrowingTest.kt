@@ -1,6 +1,7 @@
 package dev.kiln.client.lua
 
 import dev.kiln.client.lua.V2Host.Companion.pkg
+import dev.kiln.client.lua.sandbox.LuaScriptException
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -52,7 +53,7 @@ class LuaPermissionBorrowingTest {
 
     private fun setup(): Triple<V2Host, LuaExtension, LuaExtension> {
         val host = V2Host()
-        val lib = host.load(pkg("lib", setOf("keybinds", "hud", "widgets"), files = *arrayOf("main.lua" to libSource)))
+        val lib = host.load(pkg("lib", setOf("keybinds", "hud", "widgets"), files = arrayOf("main.lua" to libSource)))
         val app = host.load(pkg("app", setOf("channels"), listOf("lib"), "main.lua" to appSource))
         return Triple(host, lib, app)
     }
@@ -100,7 +101,7 @@ class LuaPermissionBorrowingTest {
     @Test
     fun `a raw API function used directly as a callback runs with the callback owner's principal`() {
         val host = V2Host()
-        val lib = host.load(pkg("lib", setOf("hud", "keybinds"), files = *arrayOf("main.lua" to """
+        val lib = host.load(pkg("lib", setOf("hud", "keybinds"), files = arrayOf("main.lua" to """
             local stored
             -- lib registers the layer in its own call: the HUD layer now IS the app's send function
             kiln.keys.bind("go", { press = function() kiln.hud.layer("h", { width = 1, height = 1 }, stored) end })
@@ -121,7 +122,7 @@ class LuaPermissionBorrowingTest {
     @Test
     fun `exported raw API functions cannot be used by an importer without the permission`() {
         val host = V2Host()
-        host.load(pkg("chan", setOf("channels", "toasts", "screens"), files = *arrayOf("main.lua" to """
+        host.load(pkg("chan", setOf("channels", "toasts", "screens"), files = arrayOf("main.lua" to """
             local ch = kiln.net.channel("c")
             kiln.export({ ch = ch, send = ch.send, channel = kiln.net.channel, toast = kiln.ui.toast, open = kiln.ui.open, net = kiln.net })
         """.trimIndent())))
@@ -147,7 +148,7 @@ class LuaPermissionBorrowingTest {
     @Test
     fun `gated functions refuse to run outside a runtime call and without the owner's permission`() {
         val host = V2Host()
-        val ext = host.load(pkg("x", setOf("toasts", "channels"), files = *arrayOf("main.lua" to "ch = kiln.net.channel('c')")))
+        val ext = host.load(pkg("x", setOf("toasts", "channels"), files = arrayOf("main.lua" to "ch = kiln.net.channel('c')")))
         val toast = ext.runtime.globals.get("kiln").get("ui").get("toast")
         val outside = assertThrows<LuaError> { toast.call(LuaValue.valueOf("a"), LuaValue.valueOf("b")) }
         assertTrue(outside.message!!.contains("outside a call"), outside.message)
@@ -159,7 +160,7 @@ class LuaPermissionBorrowingTest {
         assertEquals(1, host.sent.size)
 
         // the owner's own permission is checked as well (defense in depth; such functions are never created)
-        val plain = host.load(pkg("plain", setOf("widgets"), files = *arrayOf("main.lua" to "")))
+        val plain = host.load(pkg("plain", setOf("widgets"), files = arrayOf("main.lua" to "")))
         val error = assertThrows<LuaScriptException> {
             plain.runtime.call(object : org.luaj.vm2.lib.ZeroArgFunction() {
                 override fun call(): LuaValue { plain.checkCaller("channels"); return LuaValue.NIL }
@@ -171,7 +172,7 @@ class LuaPermissionBorrowingTest {
     @Test
     fun `host code reading a proxied definition table runs no Lua outside a call`() {
         val host = V2Host()
-        val lib = host.load(pkg("lib", files = *arrayOf("main.lua" to """
+        val lib = host.load(pkg("lib", files = arrayOf("main.lua" to """
             hits = 0
             local def = setmetatable({}, { __index = function(t, k) hits = hits + 1 return nil end })
             kiln.export({ def = def })
@@ -191,7 +192,7 @@ class LuaPermissionBorrowingTest {
     @Test
     fun `tail calls are plain calls now and still return all results`() {
         val host = V2Host()
-        val ext = host.load(pkg("t", files = *arrayOf("main.lua" to """
+        val ext = host.load(pkg("t", files = arrayOf("main.lua" to """
             local function three() return 1, 2, 3 end
             local function pass(...) return select("#", ...), ... end
             local function viaTail() return three() end
@@ -211,7 +212,7 @@ class LuaPermissionBorrowingTest {
     @Test
     fun `a callback run by the API extension cannot use the API extension's exported channel`() {
         val host = V2Host()
-        val kit = host.load(pkg("kit", setOf("channels", "keybinds"), files = *arrayOf("main.lua" to """
+        val kit = host.load(pkg("kit", setOf("channels", "keybinds"), files = arrayOf("main.lua" to """
             local ch = kiln.net.channel("x")
             local callbacks = {}
             kiln.keys.bind("go", { press = function() for _, f in ipairs(callbacks) do f() end end })
@@ -258,7 +259,7 @@ class LuaPermissionBorrowingTest {
     @Test
     fun `exported API functions handed back as callbacks or metamethods cannot make the exporter send`() {
         val host = V2Host()
-        val kit = host.load(pkg("kit", setOf("channels", "keybinds"), files = *arrayOf("main.lua" to deputySource)))
+        val kit = host.load(pkg("kit", setOf("channels", "keybinds"), files = arrayOf("main.lua" to deputySource)))
         val poor = host.load(pkg("poor", setOf("widgets"), listOf("kit"), "main.lua" to """
             local kit = kiln.import("kit")
             local send = kit.channel.send
@@ -274,7 +275,7 @@ class LuaPermissionBorrowingTest {
     @Test
     fun `a raw API function cannot run as a metamethod or through a library function`() {
         val host = V2Host()
-        val lib = host.load(pkg("lib", files = *arrayOf("main.lua" to """
+        val lib = host.load(pkg("lib", files = arrayOf("main.lua" to """
             local fn
             kiln.export({
               register = function(f) fn = f end,

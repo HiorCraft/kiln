@@ -1,6 +1,6 @@
 package dev.kiln.client.entity.model
 
-import dev.kiln.protocol.AnimationMode
+import dev.kiln.protocol.message.AnimationMode
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test

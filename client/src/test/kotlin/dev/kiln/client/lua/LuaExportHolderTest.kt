@@ -70,7 +70,7 @@ class LuaExportHolderTest {
 
     private fun attack(path: String, handBack: String, permissions: Set<String> = setOf("widgets")): V2Host {
         val host = V2Host()
-        val kit = host.load(pkg("kit", setOf("channels", "keybinds"), files = *arrayOf("main.lua" to kitSource)))
+        val kit = host.load(pkg("kit", setOf("channels", "keybinds"), files = arrayOf("main.lua" to kitSource)))
         host.load(pkg("poor", permissions, listOf("kit"), "main.lua" to """
             local kit = kiln.import("kit")
             local f, a = ${paths.getValue(path)}, { stolen = true }
@@ -114,7 +114,7 @@ class LuaExportHolderTest {
     @Test
     fun `re-exported wrappers keep every holder on the way`() {
         val host = V2Host()
-        val base = host.load(pkg("base", setOf("channels", "keybinds"), files = *arrayOf("main.lua" to kitSource)))
+        val base = host.load(pkg("base", setOf("channels", "keybinds"), files = arrayOf("main.lua" to kitSource)))
         // mid has the permission and re-exports base's channel (and a holderless view of it)
         host.load(pkg("mid", setOf("channels"), listOf("base"), "main.lua" to """
             local base = kiln.import("base")
@@ -140,7 +140,7 @@ class LuaExportHolderTest {
     @Test
     fun `holderless views run gated functions for nobody, not even for the owner`() {
         val host = V2Host()
-        val ext = host.load(pkg("x", setOf("channels"), files = *arrayOf("main.lua" to """
+        val ext = host.load(pkg("x", setOf("channels"), files = arrayOf("main.lua" to """
             local ch = kiln.net.channel("c")
             local ro = kiln.readonly({ send = ch.send, helper = function(m) return ch:send(m) end, plain = function() return 1 end })
             local ok, err = pcall(ro.send, ch, { via = "readonly" })
@@ -169,7 +169,7 @@ class LuaExportHolderTest {
             val sent = ArrayList<String>()
             for (o in obtain.indices) for (bc in bToC.indices) for (ca in cToA.indices) {
                 val host = V2Host()
-                val a = host.load(pkg("a", setOf("channels", "keybinds"), files = *arrayOf("main.lua" to kitSource)))
+                val a = host.load(pkg("a", setOf("channels", "keybinds"), files = arrayOf("main.lua" to kitSource)))
                 host.load(pkg("b", if (bHasPermission) setOf("channels") else setOf("widgets"), listOf("a"), "main.lua" to """
                     local a = kiln.import("a")
                     local f = ${obtain[o]}
@@ -198,7 +198,7 @@ class LuaExportHolderTest {
     @Test
     fun `table proxies given back to their exporter become the real table, its gated functions stay checked in the call`() {
         val host = V2Host()
-        val a = host.load(pkg("a", setOf("channels"), files = *arrayOf("main.lua" to """
+        val a = host.load(pkg("a", setOf("channels"), files = arrayOf("main.lua" to """
             local ch = kiln.net.channel("x")
             local box = {}
             kiln.export({ ch = ch, box = box,
