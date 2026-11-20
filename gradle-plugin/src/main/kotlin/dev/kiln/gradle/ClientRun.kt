@@ -10,7 +10,10 @@ import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
+import org.gradle.work.DisableCachingByDefault
 
 /**
  * `prepareKilnClient` writes [ClientRunProject] to `build/kiln/client`; `runClient` runs that project's `runClient`
@@ -42,9 +45,12 @@ internal object ClientRun {
     }
 }
 
+@DisableCachingByDefault(because = "writes two small build scripts")
 abstract class PrepareKilnClient : DefaultTask() {
     /** The Kiln client runtime jar (exactly one file). */
+    // the generated script refers to the jar by absolute path
     @get:InputFiles
+    @get:PathSensitive(PathSensitivity.ABSOLUTE)
     abstract val clientJars: ConfigurableFileCollection
 
     @get:Input

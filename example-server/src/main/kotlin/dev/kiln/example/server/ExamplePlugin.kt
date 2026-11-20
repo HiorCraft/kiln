@@ -96,12 +96,12 @@ class ExamplePlugin : JavaPlugin(), Listener, TabExecutor {
             }
         }
 
-        getCommand("pbdemo")!!.setExecutor(this)
+        ExampleCommands.register(this, "pbdemo", this)
         // /shopdsl: server-rendered market (screen DSL); /shop: the same market as Lua extension (ui_kit + shop)
         val dslShop = ShopService(this)
-        getCommand("shopdsl")!!.setExecutor(dslShop)
+        ExampleCommands.register(this, "shopdsl", dslShop)
         val luaShop = LuaShopService(this, dslShop)
-        getCommand("shop")!!.setExecutor(luaShop)
+        ExampleCommands.register(this, "shop", luaShop)
         // five ui_kit demo GUIs (Lua extensions with their own keybind): command -> demo
         val demos: Map<String, (JavaPlugin) -> LuaDemo> = linkedMapOf(
             "fabrik" to ::FactoryDemo,
@@ -110,7 +110,7 @@ class ExamplePlugin : JavaPlugin(), Listener, TabExecutor {
             "bestenliste" to ::LeaderboardDemo,
             "profil" to ::ProfileDemo,
         )
-        for ((command, create) in demos) getCommand(command)!!.setExecutor(create(this))
+        for ((command, create) in demos) ExampleCommands.register(this, command, create(this))
         server.pluginManager.registerEvents(this, this)
 
         // live updates: the factory runs once per second and every open GUI is re-rendered
