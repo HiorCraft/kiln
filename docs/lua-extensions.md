@@ -669,8 +669,7 @@ den Client abstürzen zu lassen oder einzufrieren:
   den Daten.
 - **Zustimmung:** „Ressourcen“ nennt Shader (Post-Effekte laufen auf der GPU des Spielers).
 - **`print`:** höchstens 20 Zeilen pro Sekunde und Extension, danach ein Hinweis.
-- **Screens:** `ui.open` ersetzt keine Screens des Spiels; Lua-Screens tragen unten rechts die Herkunft
-  („Server-Erweiterung: <Name>“), von kiln gezeichnet.
+- **Screens:** `ui.open` ersetzt keine Screens des Spiels (Pause, Chat, Inventar, Optionen).
 - **Namensräume:** Eine Extension-ID darf kein Namensraum eines geladenen Ressourcenpakets oder einer Mod sein.
 - **Cache:** `kiln/cache` hält höchstens 512 MiB; ältere Pakete (zuletzt benutzt) werden gelöscht.
 - **Tasten:** Ist die Standard-Taste einer Server-Tastenbelegung schon belegt (Spiel, Mod, andere Belegung), startet
