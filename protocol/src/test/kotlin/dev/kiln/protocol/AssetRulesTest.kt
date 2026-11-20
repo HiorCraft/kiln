@@ -62,6 +62,6 @@ class AssetRulesTest {
     fun permissionsCanonicalOrderEndsWithResources() {
         assertEquals(ExtensionPermissions.RESOURCES, ExtensionPermissions.ALL.last())
         assertEquals("resources", ExtensionPermissions.RESOURCES)
-        assertEquals(6, PROTOCOL_VERSION)
+        assertEquals(7, PROTOCOL_VERSION)
     }
 }

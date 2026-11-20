@@ -13,6 +13,11 @@ import dev.kiln.protocol.ExtensionRequest
 import dev.kiln.protocol.ExtensionsReady
 import dev.kiln.protocol.ResourceId
 import dev.kiln.protocol.SetPostEffect
+import dev.kiln.protocol.CreativeTabData
+import dev.kiln.protocol.CreativeTabs
+import dev.kiln.protocol.ProtocolLimits
+import dev.kiln.protocol.EntityTraits
+import dev.kiln.protocol.EntityTraitsRemove
 import dev.kiln.protocol.ProtocolLimits.MAX_RESOURCE_ID_LENGTH
 import dev.kiln.protocol.Hello
 import dev.kiln.protocol.Ids
@@ -85,6 +90,9 @@ public object MessageCodec {
     private const val EXTENSION_MANIFEST = 7
     private const val EXTENSION_CHUNK = 8
     private const val SET_POST_EFFECT = 9
+    private const val CREATIVE_TABS = 10
+    private const val ENTITY_TRAITS = 11
+    private const val ENTITY_TRAITS_REMOVE = 12
 
     // ---- client -> server -----------------------------------------------------------------------------------
 
@@ -247,6 +255,28 @@ public object MessageCodec {
                 message.id?.let { requireResourceId(it) }
                 w.nullableString(message.id, MAX_RESOURCE_ID_LENGTH, "post effect")
             }
+            is CreativeTabs -> {
+                w.varInt(CREATIVE_TABS)
+                w.boolean(message.reset)
+                w.list(message.tabs, ProtocolLimits.MAX_CREATIVE_ENTRIES, "creative entries") { tab ->
+                    requireResourceId(tab.id)
+                    w.string(tab.id, MAX_RESOURCE_ID_LENGTH, "creative tab id")
+                    w.string(tab.title, MAX_STRING_LENGTH, "creative tab title")
+                    ElementCodec.writeNullableItem(w, tab.icon)
+                    w.list(tab.items, ProtocolLimits.MAX_CREATIVE_ITEMS, "creative items") { ElementCodec.writeItem(w, it) }
+                    tab.target?.let { requireResourceId(it) }
+                    w.nullableString(tab.target, MAX_RESOURCE_ID_LENGTH, "creative tab target")
+                }
+            }
+            is EntityTraits -> {
+                w.varInt(ENTITY_TRAITS)
+                w.varInt(message.entityId)
+                w.boolean(message.solid)
+            }
+            is EntityTraitsRemove -> {
+                w.varInt(ENTITY_TRAITS_REMOVE)
+                w.list(message.entityIds, ProtocolLimits.MAX_ENTITY_IDS, "entity ids") { w.varInt(it) }
+            }
         }
     }
 
@@ -302,6 +332,20 @@ public object MessageCodec {
                 displayMillis = r.varInt(1, MAX_TOAST_MILLIS, "toast display time"),
             )
             SET_POST_EFFECT -> SetPostEffect(r.nullableString(MAX_RESOURCE_ID_LENGTH, "post effect")?.also { requireResourceId(it) })
+            CREATIVE_TABS -> CreativeTabs(
+                r.boolean(),
+                r.list(ProtocolLimits.MAX_CREATIVE_ENTRIES, "creative entries") {
+                    CreativeTabData(
+                        id = r.string(MAX_RESOURCE_ID_LENGTH, "creative tab id").also { requireResourceId(it) },
+                        title = r.string(MAX_STRING_LENGTH, "creative tab title"),
+                        icon = ElementCodec.readNullableItem(r),
+                        items = r.list(ProtocolLimits.MAX_CREATIVE_ITEMS, "creative items") { ElementCodec.readItem(r) },
+                        target = r.nullableString(MAX_RESOURCE_ID_LENGTH, "creative tab target")?.also { requireResourceId(it) },
+                    )
+                },
+            )
+            ENTITY_TRAITS -> EntityTraits(r.varInt(), r.boolean())
+            ENTITY_TRAITS_REMOVE -> EntityTraitsRemove(r.list(ProtocolLimits.MAX_ENTITY_IDS, "entity ids") { r.varInt() })
             else -> throw ProtocolException("Unknown clientbound message type $type")
         }
     }

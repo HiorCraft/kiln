@@ -35,6 +35,9 @@ import dev.kiln.protocol.ProtocolLimits
 import dev.kiln.protocol.ResourceId
 import dev.kiln.protocol.ServerboundMessage
 import dev.kiln.protocol.SetPostEffect
+import dev.kiln.protocol.CreativeTabs
+import dev.kiln.protocol.EntityTraits
+import dev.kiln.protocol.EntityTraitsRemove
 import dev.kiln.protocol.ShowToast
 import dev.kiln.protocol.UpdateScreen
 import dev.kiln.protocol.Viewport
@@ -369,6 +372,7 @@ class KilnClientImpl(
                 val shaders = minecraft.shaderManager
                 shaders.isPostEffectValid(id, LevelTargetBundle.MAIN_TARGETS) && shaders.getPostChain(id, LevelTargetBundle.MAIN_TARGETS) != null
             }
+            is CreativeTabs, is EntityTraits, is EntityTraitsRemove -> logger.debug("Not handled yet: {}", message)
             is Welcome, is ExtensionManifest, is ExtensionChunk -> logger.debug("Ignoring {} in the play phase", message)
         }
     }

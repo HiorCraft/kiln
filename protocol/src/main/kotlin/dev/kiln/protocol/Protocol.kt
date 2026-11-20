@@ -12,8 +12,9 @@ package dev.kiln.protocol
  * clientbound [ExtensionMessage]s ([ProtocolLimits.MAX_CLIENTBOUND_EXTENSION_JSON_LENGTH]).
  * v6: resource-pack trees in packages (`assets/<id>/…`, [AssetRules]), permission `resources`, larger packages
  * ([ProtocolLimits.MAX_EXTENSION_PACKAGE_BYTES]), [SetPostEffect].
+ * v7: [CreativeTabs], [EntityTraits], [EntityTraitsRemove] (furniture).
  */
-public const val PROTOCOL_VERSION: Int = 6
+public const val PROTOCOL_VERSION: Int = 7
 
 /** The single plugin-messaging / custom-payload channel used in both directions. */
 public const val CHANNEL: String = "kiln:main"
@@ -79,6 +80,18 @@ public object ProtocolLimits {
      * in bytes; since v6.
      */
     public const val MAX_TOTAL_UNPACKED_BYTES: Long = 256L * 1024 * 1024
+
+    /** Own creative tabs the client offers (placeholders `kiln:server_0..7`); since v7. */
+    public const val MAX_CREATIVE_TABS: Int = 8
+
+    /** Entries (own tabs + vanilla-tab additions) of one [CreativeTabs] update; since v7. */
+    public const val MAX_CREATIVE_ENTRIES: Int = 32
+
+    /** Items of one creative entry; since v7. */
+    public const val MAX_CREATIVE_ITEMS: Int = 512
+
+    /** Entity ids in one [EntityTraitsRemove]; since v7. */
+    public const val MAX_ENTITY_IDS: Int = 1024
 
     /** Maximum number of files in one extension package; since v6. */
     public const val MAX_EXTENSION_FILES: Int = 4096

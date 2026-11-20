@@ -194,3 +194,29 @@ public data class ExtensionMessage(val channel: ResourceId, val json: String) : 
  * The client ignores unknown effects.
  */
 public data class SetPostEffect(val id: String?) : ClientboundMessage
+
+/**
+ * One creative-inventory entry (v7): an own tab ([target] = `null`, at most [ProtocolLimits.MAX_CREATIVE_TABS] of
+ * them, shown in the client's placeholder tabs in order) or items added to a vanilla tab ([target] = its id, e.g.
+ * `minecraft:ingredients`). [id] is a `namespace:path` key, [title] a Component as JSON, items are full stacks.
+ */
+public data class CreativeTabData(
+    val id: String,
+    val title: String,
+    val icon: ItemStackData?,
+    val items: List<ItemStackData>,
+    val target: String?,
+)
+
+/**
+ * Play phase (v7): creative-inventory content. [reset] = `true` replaces everything the client had (first message
+ * of an update); further messages of the same update append [tabs] (the server splits large updates).
+ */
+public data class CreativeTabs(val reset: Boolean, val tabs: List<CreativeTabData>) : ClientboundMessage
+
+/** Play phase (v7): traits of entity [entityId] (sent when it is tracked): [solid] = collide like a boat. */
+public data class EntityTraits(val entityId: Int, val solid: Boolean) : ClientboundMessage
+
+/** Play phase (v7): the entities stopped being tracked; their traits are dropped. */
+public data class EntityTraitsRemove(val entityIds: List<Int>) : ClientboundMessage
+

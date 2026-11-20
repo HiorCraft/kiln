@@ -123,6 +123,13 @@ class MessageCodecTest {
             ExtensionChunk("x", 7, 8, Random(1).nextBytes(ProtocolLimits.MAX_EXTENSION_CHUNK_BYTES)),
             SetPostEffect("kiln_content:wobble"),
             SetPostEffect(null),
+            CreativeTabs(reset = true, tabs = emptyList()),
+            CreativeTabs(reset = false, tabs = listOf(
+                CreativeTabData("kiln_content:schmuck", """{"text":"Schmuck"}""", fancySword, listOf(diamond, fancySword), null),
+                CreativeTabData("kiln_content:extra", """{"text":"x"}""", null, listOf(diamond), "minecraft:ingredients"),
+            )),
+            EntityTraits(42, solid = true),
+            EntityTraitsRemove(listOf(1, 2, 3)),
         )
     }
 
@@ -426,5 +433,15 @@ class MessageCodecTest {
             repeat(random.nextInt(1, 4)) { bytes[random.nextInt(bytes.size)] = random.nextInt(256).toByte() }
             runCatching { MessageCodec.decodeClientbound(bytes) }.exceptionOrNull()?.let { assertTrue(it is ProtocolException, it.toString()) }
         }
+    }
+
+    @Test
+    fun `creative tab limits are enforced`() {
+        val entry = CreativeTabData("a:b", "{}", null, emptyList(), null)
+        assertThrows<ProtocolException> { MessageCodec.encodeClientbound(CreativeTabs(true, List(ProtocolLimits.MAX_CREATIVE_ENTRIES + 1) { entry })) }
+        assertThrows<ProtocolException> {
+            MessageCodec.encodeClientbound(CreativeTabs(true, listOf(entry.copy(items = List(ProtocolLimits.MAX_CREATIVE_ITEMS + 1) { ItemStackData(ResourceId.parse("stone")) }))))
+        }
+        assertThrows<ProtocolException> { MessageCodec.encodeClientbound(CreativeTabs(true, listOf(entry.copy(id = "no namespace")))) }
     }
 }
