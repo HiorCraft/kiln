@@ -20,4 +20,13 @@ resource-reload-timeout-seconds: 120
 # Chunks (512 KiB) are spread over time on the player's handshake thread, never on the server thread. The time the
 # limit itself needs (requested bytes / rate) is added to extensions-timeout-seconds for that player.
 extension-send-rate-kib-per-second: 0
+# Configuration phase: concurrent kiln handshakes per client IP address (0 = unlimited). Each one holds a thread
+# for up to consent-timeout-seconds. Behind a proxy (Velocity) the real address is only known with IP forwarding
+# (modern forwarding); otherwise every player shares the proxy's address, so raise or disable this there.
+max-handshakes-per-address: 4
+# Extension downloads per client IP address: at most this many MiB per download-window-minutes (0 = unlimited).
+# Clients cache packages, so a normal player downloads once; reconnecting in a loop to re-download is stopped. A
+# first download larger than the budget is always allowed.
+download-mib-per-address: 256
+download-window-minutes: 10
 # Lua extension packages: plugins/Kiln/extensions/<id>/ or <id>.zip (see docs/lua-extensions.md).

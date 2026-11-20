@@ -58,6 +58,11 @@ object KickMessages {
 
     const val SHUTDOWN = "Server wird neu gestartet."
 
+    const val TOO_MANY_HANDSHAKES = "Zu viele gleichzeitige Verbindungen von deiner Adresse. Bitte versuche es gleich noch einmal."
+
+    const val DOWNLOAD_LIMIT =
+        "Zu viele Downloads der Server-Erweiterungen von deiner Adresse. Bitte versuche es in ein paar Minuten erneut."
+
     fun dependencyProblems(problems: List<String>): String =
         "Die Server-Erweiterungen sind fehlerhaft konfiguriert (Abhängigkeiten):" + NL + problems.take(3).joinToString(NL) +
             (if (problems.size > 3) NL + "…" else "") + NL + "Bitte melde das dem Server-Team."
@@ -146,6 +151,8 @@ class ConfigurationHandshake(
     private val sleep: (Long) -> Unit = Thread::sleep,
     /** Dependency problems of the registered extensions: every client is disconnected after the version check. */
     private val dependencyProblems: List<String> = emptyList(),
+    /** Asked with the bytes about to be streamed (after consent); `false` = download limit of this client reached. */
+    private val allowDownload: (Long) -> Boolean = { true },
 ) {
     private class Abort(val result: HandshakeResult) : Exception(null, null, false, false)
 
@@ -196,10 +203,14 @@ class ConfigurationHandshake(
         }
         val requested = request.ids.toSet()
         val toSend = packages.filter { it.id in requested }
+        val totalBytes = toSend.sumOf { it.zip.size.toLong() }
+        if (!allowDownload(totalBytes)) {
+            return HandshakeResult.Kick(KickMessages.DOWNLOAD_LIMIT, "download limit reached ($totalBytes bytes requested)")
+        }
         // the throttle's own transfer time is added, so a low rate cannot cause the download timeout by itself
         // a resource reload follows on the client whenever any package (cached or not) has assets
         val reloadMillis = if (packages.any { it.hasAssets }) timeouts.resourceReloadMillis else 0L
-        val downloadMillis = throttle.downloadTimeoutMillis(timeouts.extensionsMillis, toSend.sumOf { it.zip.size.toLong() }) + reloadMillis
+        val downloadMillis = throttle.downloadTimeoutMillis(timeouts.extensionsMillis, totalBytes) + reloadMillis
         val start = clock()
         val deadline = start + downloadMillis
         var sentBytes = 0L

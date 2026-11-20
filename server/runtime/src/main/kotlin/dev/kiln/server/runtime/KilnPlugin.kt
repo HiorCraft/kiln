@@ -3,7 +3,9 @@ package dev.kiln.server.runtime
 import dev.kiln.server.api.Kiln
 import dev.kiln.protocol.CHANNEL
 import dev.kiln.protocol.PROTOCOL_VERSION
+import dev.kiln.server.runtime.handshake.DownloadBudget
 import dev.kiln.server.runtime.handshake.HandshakeManager
+import dev.kiln.server.runtime.handshake.HandshakeSlots
 import dev.kiln.server.runtime.item.CustomItemListener
 import dev.kiln.server.runtime.enchantment.EnchantmentHooks
 import dev.kiln.server.api.enchantment.KilnBootstrap
@@ -56,6 +58,14 @@ class KilnPlugin : JavaPlugin(), Listener {
     @Volatile
     private var sendThrottle = SendThrottle.UNLIMITED
 
+    /** `max-handshakes-per-address`: concurrent configuration-phase handshakes per client address (0 = unlimited). */
+    @Volatile
+    private var handshakeSlots = HandshakeSlots(0)
+
+    /** `download-mib-per-address` per `download-window-minutes`: extension download budget per address (0 = unlimited). */
+    @Volatile
+    private var downloadBudget = DownloadBudget(0, 1)
+
     override fun onLoad() {
         bridge = KilnImpl(this)
         server.servicesManager.register(Kiln::class.java, bridge, this, ServicePriority.Normal)
@@ -75,7 +85,15 @@ class KilnPlugin : JavaPlugin(), Listener {
 
         sendThrottle = SendThrottle.kibPerSecond(config.getLong("extension-send-rate-kib-per-second", 0))
 
-        handshakes = HandshakeManager(this, logger, bridge.extensionRegistry, { timeouts }, { sendThrottle }, { debug })
+        handshakeSlots = HandshakeSlots(config.getInt("max-handshakes-per-address", 4).coerceAtLeast(0))
+        downloadBudget = DownloadBudget(
+            config.getLong("download-mib-per-address", 256).coerceAtLeast(0) * 1024 * 1024,
+            config.getLong("download-window-minutes", 10).coerceIn(1, 1_440) * 60_000,
+        )
+
+        handshakes = HandshakeManager(
+            this, logger, bridge.extensionRegistry, { timeouts }, { sendThrottle }, { debug }, { handshakeSlots }, { downloadBudget },
+        )
         bridge.extensionRegistry.loadDirectory(this, dataFolder.toPath().resolve("extensions"))
 
         val messenger = server.messenger

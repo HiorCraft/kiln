@@ -117,6 +117,17 @@ class ConfigurationHandshakeTest {
     }
 
     @Test
+    fun `download limit kicks before any chunk is sent`() {
+        val client = FakeClient()
+        client.reply(Hello(PROTOCOL_VERSION, emptyList()))
+        var asked = -1L
+        val result = ConfigurationHandshake(client, client.inbox, listOf(small, large), timeouts, allowDownload = { asked = it; false }).run()
+        assertInstanceOf(HandshakeResult.Kick::class.java, result)
+        assertEquals(small.zip.size.toLong() + large.zip.size, asked)
+        assertTrue(client.sent.none { it is ExtensionChunk })
+    }
+
+    @Test
     fun `no hello means no runtime`() {
         val result = FakeClient().run()
         assertEquals(KickMessages.NO_RUNTIME, (result as HandshakeResult.Kick).reason)

@@ -32,6 +32,8 @@ class HandshakeManager(
     private val timeouts: () -> HandshakeTimeouts,
     private val throttle: () -> SendThrottle,
     private val debug: () -> Boolean,
+    private val slots: () -> HandshakeSlots = { HandshakeSlots(0) },
+    private val downloads: () -> DownloadBudget = { DownloadBudget(0, 1) },
 ) : Listener {
     private val pending = ConcurrentHashMap<UUID, HandshakeInbox>()
     private val ready = ConcurrentHashMap<UUID, Long>()
@@ -61,6 +63,23 @@ class HandshakeManager(
             connection.disconnect(Component.text(KickMessages.SHUTDOWN))
             return
         }
+        // behind a proxy this is the player's address only with IP forwarding (Velocity modern forwarding)
+        val address = connection.clientAddress?.address?.hostAddress ?: "unknown"
+        val slots = slots()
+        if (!slots.tryAcquire(address)) {
+            logger.info("Disconnecting $name: too many concurrent kiln handshakes from $address")
+            connection.disconnect(Component.text(KickMessages.TOO_MANY_HANDSHAKES, NamedTextColor.RED))
+            pending.remove(uuid)
+            return
+        }
+        try {
+            configure(connection, uuid, name, address)
+        } finally {
+            slots.release(address)
+        }
+    }
+
+    private fun configure(connection: PlayerConfigurationConnection, uuid: UUID, name: String, address: String) {
         val inbox = pending.computeIfAbsent(uuid) { HandshakeInbox() }
         val link = object : HandshakeLink {
             override fun send(message: ClientboundMessage) {
@@ -74,7 +93,11 @@ class HandshakeManager(
         val started = System.currentTimeMillis()
         val result = try {
             val delivery = registry.delivery
-            ConfigurationHandshake(link, inbox, delivery.packages, timeouts(), throttle(), dependencyProblems = delivery.problems).run()
+            val budget = downloads()
+            ConfigurationHandshake(
+                link, inbox, delivery.packages, timeouts(), throttle(), dependencyProblems = delivery.problems,
+                allowDownload = { bytes -> budget.tryConsume(address, bytes) },
+            ).run()
         } catch (t: Throwable) {
             if (t is VirtualMachineError) throw t
             logger.log(Level.SEVERE, "kiln handshake of $name failed", t)
@@ -108,6 +131,7 @@ class HandshakeManager(
         val now = System.currentTimeMillis()
         pending.values.removeIf { now - it.createdAt > STALE_MILLIS }
         ready.values.removeIf { now - it > STALE_MILLIS }
+        downloads().sweep()
     }
 
     fun shutdown() {
