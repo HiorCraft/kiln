@@ -621,3 +621,33 @@ Teile (Stuhllehne) werden aus mehreren schmalen Boxen gebaut.
 **Ressourcen-Reload beim Verlassen:** erst nach Abschluss des Disconnects (`Minecraft.disconnect` verwirft alle
 wartenden Main-Thread-Aufgaben).
 
+## Custom Entities (Protokoll v8)
+
+**Server-API:** `Kiln.entities.register(plugin, key) { model; displayName; width; height; health; speed;
+attackDamage; headBone; sounds { ambient; hurt; death; step; stepInterval; volume; pitch }; behavior { … };
+onSpawn; onDamage; onDeath }`, danach `type.spawn(location)` und `Kiln.entities.of(entity)`. Das Modell liegt in
+`assets/<ns>/kiln/entity/<name>.geo.json` (Bedrock-Geometrie), dazu optional `<name>.animation.json` und die Textur
+`assets/<ns>/textures/entity/<name>.png`.
+
+**Verhalten:** Goals mit Priorität (kleinere Zahl gewinnt) und den Steuerungen `movement`/`looking`; zwei Goals mit
+gemeinsamer Steuerung laufen nicht gleichzeitig. Ein Goal hat `canStart`, `canContinue`, `onStart`, `tick`,
+`onStop` oder eine `sequence { run; wait; animate; stopMoving }` (das Goal läuft, bis der Ablauf fertig ist).
+Vorlagen: `wander`, `lookAtNearestPlayer`, `chaseTarget`. `targeting(range, filter)` wählt den nächsten sichtbaren
+Spieler im Survival/Adventure. Zustände (`state(name) { onEnter; onExit }`, `switchTo`) begrenzen Goals über
+`inStates`. Fehler in Behaviour-Code stoppen das Goal für dieses Entity und werden geloggt.
+
+**Server-Umsetzung:** `KilnMob` ist eine NMS-Unterklasse von Zombie (Netzwerktyp Zombie, Bukkit-Wrapper
+`CraftZombie`) ohne Vanilla-Goals, ohne Sonnenbrand, Umwandlung und Baby-Variante, stumm (Sounds kommen aus der
+Definition), mit eigenen Maßen. Nicht persistent: gespeichert wird im Chunk-PDC `kiln:entities` (Typ, Position,
+Leben, Zustand); beim Laden des Chunks entsteht das Entity neu, solange der Typ registriert ist. Ohne Kiln oder
+Plugin bleibt nichts in der Welt. Nur Bodenbewegung (Fliegen ist offen).
+
+**Protokoll:** `EntityAppearance(entityId, model, width, height, headBone)` beim Tracken, `PlayAnimation(entityId,
+name, mode, speed)` mit `AnimationMode` ONCE/LOOP/HOLD, `StopAnimation(entityId, name?)`.
+
+**Client:** Parser für Bedrock-Geometrie und -Animationen (Keyframes, lineare Interpolation), `AnimationMixer`
+(Zustandsanimation `walk`/`idle` plus Server-Animationen), `GeoMesh` erzeugt die Würfel (x gespiegelt, Rotation in
+Reihenfolge Z, Y, X). `KilnModelRenderer` ersetzt per Mixin auf `EntityRenderDispatcher.getRenderer` den Renderer
+markierter Entities, `LivingEntityDimensionsMixin` setzt die Hitbox. Der Kopf-Knochen `head` folgt der Blickrichtung.
+Beim Tod kippt das Modell wie in Vanilla zur Seite, außer das Modell hat eine Animation `death` (läuft dann und
+bleibt auf dem letzten Frame).
