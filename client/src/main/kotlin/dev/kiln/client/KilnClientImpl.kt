@@ -6,6 +6,7 @@ import dev.kiln.client.ext.ExtensionHandshake
 import dev.kiln.client.ext.ExtensionIcons
 import dev.kiln.client.ext.LoadingScreen
 import dev.kiln.client.resource.KilnPackSource
+import dev.kiln.client.resource.DeferredReload
 import dev.kiln.client.creative.KilnCreativeTabs
 import dev.kiln.client.entity.KilnEntityTraits
 import dev.kiln.client.resource.KilnPostEffect
@@ -324,8 +325,8 @@ class KilnClientImpl(
         KilnPostEffect.clear()
         KilnCreativeTabs.clear()
         KilnEntityTraits.CLIENT.clear()
-        // the extensions' resource pack goes with them
-        if (KilnPackSource.clear()) Minecraft.getInstance().reloadResourcePacks()
+        // the extensions' resource pack goes with them, reloaded once the disconnect is complete
+        if (KilnPackSource.clear()) packReload.request()
         icons.clear()
         session = null
         inPlay = false
@@ -423,7 +424,14 @@ class KilnClientImpl(
         if (send(viewport)) sentViewport = viewport
     }
 
+    /** Reload without the extension pack after a disconnect (not inside it, see [DeferredReload]). */
+    private val packReload = DeferredReload({
+        val minecraft = Minecraft.getInstance()
+        minecraft.level == null && minecraft.connection == null && minecraft.gui.overlay() == null
+    }) { Minecraft.getInstance().reloadResourcePacks() }
+
     fun tick() {
+        packReload.tick()
         tickHandshake()
         sendViewportIfChanged()
         ServerKeybinds.tick(isConnected && inPlay) { send(it) }
