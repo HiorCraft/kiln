@@ -65,7 +65,7 @@ class ExtensionPackageTest {
 
     @Test
     fun `zip bomb stops at the unpacked limit`() {
-        val big = ByteArray(17 * 1024 * 1024) // compresses to a few KiB
+        val big = ByteArray((ExtensionPackage.MAX_UNPACKED_BYTES + 1024 * 1024).toInt()) // compresses to a few KiB
         val zip = valid("big.json" to big)
         assertTrue(zip.size < ExtensionPackage.MAX_ZIP_BYTES)
         val e = assertThrows(ExtensionPackageException::class.java) { ExtensionPackage.read(zip) }
@@ -188,5 +188,53 @@ class ExtensionPackageTest {
         val store = TrustStore(file)
         store.load()
         assertFalse(store.isTrusted("a", listOf(TrustStore.Grant("x", emptySet()))))
+    }
+
+    // ---- v6: resource-pack trees ---------------------------------------------------------------------------
+
+    private fun resources(vararg extra: Pair<String, String>, permissions: String = """["resources"]"""): ByteArray = zip(
+        "extension.json" to """{"id":"factory","version":"1","name":"Factory","permissions":$permissions}""".toByteArray(),
+        "assets/factory/models/item/a.json" to """{"parent":"minecraft:item/generated"}""".toByteArray(),
+        *extra.map { it.first to it.second.toByteArray() }.toTypedArray(),
+    )
+
+    @Test
+    fun `resource-only package has no main`() {
+        val pkg = ExtensionPackage.read(resources("assets/factory/sounds/a.ogg" to "OggS"))
+        assertNull(pkg.main)
+        assertTrue(pkg.assets.containsKey("factory/models/item/a.json"), pkg.assets.keys.toString())
+        assertTrue(pkg.assets.containsKey("factory/sounds/a.ogg"))
+    }
+
+    @Test
+    fun `assets of a foreign namespace are rejected`() {
+        val e = assertThrows(ExtensionPackageException::class.java) { ExtensionPackage.read(resources("assets/minecraft/textures/gui/x.png" to "x")) }
+        assertTrue(e.message!!.contains("assets/minecraft/textures/gui/x.png"), e.message)
+    }
+
+    @Test
+    fun `kiln references in asset json are rejected`() {
+        assertThrows(ExtensionPackageException::class.java) {
+            ExtensionPackage.read(resources("assets/factory/font/x.json" to """{"providers":[{"type":"bitmap","file":"kiln:gui/x.png"}]}"""))
+        }
+    }
+
+    @Test
+    fun `foreign language keys in assets are rejected`() {
+        assertThrows(ExtensionPackageException::class.java) { ExtensionPackage.read(resources("assets/factory/lang/en_us.json" to """{"gui.done":"x"}""")) }
+        ExtensionPackage.read(resources("assets/factory/lang/en_us.json" to """{"factory.title":"x"}"""))
+    }
+
+    @Test
+    fun `sounds are only allowed below assets`() {
+        assertFalse(ExtensionPackage.isValidPath("sounds/a.ogg"))
+        assertTrue(ExtensionPackage.isValidPath("assets/factory/sounds/a.ogg"))
+        assertThrows(ExtensionPackageException::class.java) { ExtensionPackage.read(resources("sounds/a.ogg" to "OggS")) }
+    }
+
+    @Test
+    fun `assets need the resources permission`() {
+        val e = assertThrows(ExtensionPackageException::class.java) { ExtensionPackage.read(resources(permissions = "[]")) }
+        assertTrue(e.message!!.contains("resources"), e.message)
     }
 }

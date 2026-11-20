@@ -222,12 +222,13 @@ class LuaExtension(
 
     // ---- loading ------------------------------------------------------------------------------------------
 
-    /** Runs the main file. Throws [LuaScriptException] (load failure = kick). */
+    /** Runs the main file (none for resource-only packages). Throws [LuaScriptException] (load failure = kick). */
     fun load() {
-        val source = pkg.file(pkg.main) ?: throw LuaScriptException("$id: main file ${pkg.main} missing")
+        val main = pkg.main ?: return // resource-only package: nothing to run
+        val source = pkg.file(main) ?: throw LuaScriptException("$id: main file $main missing")
         loading = true
         try {
-            runtime.load(source, pkg.main.removeSuffix(".lua"))
+            runtime.load(source, main.removeSuffix(".lua"))
             runtime.checkMemory()
         } catch (e: LuaScriptException) {
             alive = false

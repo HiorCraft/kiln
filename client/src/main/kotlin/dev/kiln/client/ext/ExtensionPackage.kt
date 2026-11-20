@@ -2,7 +2,9 @@ package dev.kiln.client.ext
 
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import dev.kiln.protocol.AssetRules
 import dev.kiln.protocol.ExtensionPermissions
+import dev.kiln.protocol.ProtocolLimits
 import dev.kiln.protocol.Ids
 import java.io.ByteArrayInputStream
 import java.io.IOException
@@ -21,7 +23,8 @@ class ExtensionPackage(
     val id: String,
     val version: String,
     val name: String,
-    val main: String,
+    /** Lua entry point; `null` for a resource-only package. */
+    val main: String?,
     val permissions: Set<String>,
     /** Path inside the package (`main.lua`, `textures/a/b.png`, ...) -> content. */
     val files: Map<String, ByteArray>,
@@ -30,11 +33,16 @@ class ExtensionPackage(
 ) {
     fun file(path: String): ByteArray? = files[path]
 
+    /** The resource-pack tree: paths relative to `assets/` (`<id>/models/...`) -> content. */
+    val assets: Map<String, ByteArray> by lazy {
+        files.filterKeys { it.startsWith(AssetRules.ROOT) }.mapKeys { it.key.removePrefix(AssetRules.ROOT) }
+    }
+
     companion object {
         const val MANIFEST = "extension.json"
-        const val MAX_ZIP_BYTES = 4 * 1024 * 1024
-        const val MAX_FILES = 256
-        const val MAX_UNPACKED_BYTES = 16L * 1024 * 1024
+        const val MAX_ZIP_BYTES = ProtocolLimits.MAX_EXTENSION_PACKAGE_BYTES
+        const val MAX_FILES = ProtocolLimits.MAX_EXTENSION_FILES
+        const val MAX_UNPACKED_BYTES = ProtocolLimits.MAX_EXTENSION_UNPACKED_BYTES.toLong()
         const val MAX_MANIFEST_BYTES = 64 * 1024
 
         private val SEGMENT = Regex("[a-z0-9_.-]+")
@@ -46,7 +54,8 @@ class ExtensionPackage(
             val segments = path.split('/')
             if (segments.any { it.isEmpty() || it == "." || it == ".." || !SEGMENT.matches(it) }) return false
             val ext = path.substringAfterLast('.', "")
-            return ext in ALLOWED_EXTENSIONS && segments.last().length > ext.length + 1
+            val allowed = if (path.startsWith(AssetRules.ROOT)) AssetRules.EXTENSIONS else ALLOWED_EXTENSIONS
+            return ext in allowed && segments.last().length > ext.length + 1
         }
 
         /**
@@ -106,8 +115,9 @@ class ExtensionPackage(
             if (version.isEmpty() || version.length > 64) fail("$MANIFEST: version must have 1-64 characters")
             val name = json.string("name") ?: fail("$MANIFEST: name missing")
             if (name.isEmpty() || name.length > 128) fail("$MANIFEST: name must have 1-128 characters")
-            val main = if (json.has("main")) json.string("main") ?: fail("$MANIFEST: main must be a string") else "main.lua"
-            if (!main.endsWith(".lua") || main !in files) fail("$MANIFEST: main file '${printable(main)}' missing")
+            // resource-only packages have no Lua: an explicit main must exist, the default main.lua is optional
+            val main = if (json.has("main")) json.string("main") ?: fail("$MANIFEST: main must be a string") else "main.lua".takeIf { it in files }
+            if (main != null && (!main.endsWith(".lua") || main !in files)) fail("$MANIFEST: main file '${printable(main)}' missing")
             val permissions = LinkedHashSet<String>()
             json.get("permissions")?.let { element ->
                 if (!element.isJsonArray) fail("$MANIFEST: permissions must be an array")
@@ -117,6 +127,7 @@ class ExtensionPackage(
                     if (!permissions.add(perm)) fail("$MANIFEST: duplicate permission '$perm'")
                 }
             }
+            checkAssets(id, files, permissions)
             val dependencies = ArrayList<String>()
             json.get("dependencies")?.let { element ->
                 if (!element.isJsonArray) fail("$MANIFEST: dependencies must be an array")
@@ -131,6 +142,29 @@ class ExtensionPackage(
                 }
             }
             return ExtensionPackage(id, version, name, main, permissions, files, dependencies)
+        }
+
+        /** The `assets/` tree: own namespace, allowed types and sizes, no `kiln:` references, own language keys. */
+        private fun checkAssets(id: String, files: Map<String, ByteArray>, permissions: Set<String>) {
+            var any = false
+            for ((path, bytes) in files) {
+                if (!path.startsWith(AssetRules.ROOT)) continue
+                any = true
+                AssetRules.problem(id, path, bytes.size)?.let { fail(it) }
+                if (path.endsWith(".json") || path.endsWith(".mcmeta")) {
+                    val text = String(bytes, Charsets.UTF_8)
+                    AssetRules.jsonProblem(path, text)?.let { fail(it) }
+                    if (path.startsWith("${AssetRules.ROOT}$id/lang/") && path.endsWith(".json")) {
+                        val keys = try {
+                            JsonParser.parseString(text).asJsonObject.keySet()
+                        } catch (e: Exception) {
+                            fail("$path is not a JSON object")
+                        }
+                        keys.firstOrNull { !AssetRules.langKeyAllowed(id, it) }?.let { fail("$path: translation key '${printable(it)}' must start with '$id.'") }
+                    }
+                }
+            }
+            if (any && ExtensionPermissions.RESOURCES !in permissions) fail("$MANIFEST: assets/ needs the permission 'resources'")
         }
 
         private fun JsonObject.string(key: String): String? {

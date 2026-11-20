@@ -52,7 +52,7 @@ class LuaExtensionTest {
     private fun pkg(id: String, permissions: Set<String>, vararg files: Pair<String, String>) =
         ExtensionPackage(id, "1", id, "main.lua", permissions, files.associate { it.first to it.second.toByteArray() })
 
-    private fun exampleDir(): Path = Paths.get("..", "example-server", "src", "main", "resources", "extensions", "kiln_example")
+    private fun exampleDir(): Path = Paths.get("..", "example", "server", "src", "main", "resources", "extensions", "kiln_example")
 
     private fun example(): ExtensionPackage {
         val dir = exampleDir()
@@ -228,5 +228,15 @@ class LuaExtensionTest {
         var count = 0
         LuaExtension.arcRuns(20.0, 20.0, 10.0, 3.0, 0.0, 1.0) { _, _, _ -> count++ }
         assertTrue(count > xs.size)
+    }
+
+    @Test
+    fun `resource-only extension loads without Lua`() {
+        val pkg = ExtensionPackage("res", "1", "res", null, setOf("resources"), mapOf("assets/res/models/item/a.json" to "{}".toByteArray()))
+        val host = V2Host()
+        val extension = LuaExtension(pkg, host, LuaLimits())
+        extension.load()
+        assertTrue(extension.alive)
+        assertTrue(host.failures.isEmpty())
     }
 }
