@@ -45,6 +45,8 @@ kiln {
     clientUsername.set("Ammo")
     // ./gradlew :example:server:runServer -PserverPort=25566 if 25565 is taken
     providers.gradleProperty("serverPort").orNull?.let { serverPort.set(it.toInt()) }
+    // ./gradlew :example:server:runClient -PquickPlay joins the dev server right away
+    if (providers.gradleProperty("quickPlay").isPresent) quickPlay.set(serverPort.map { "localhost:$it" })
 }
 
 tasks.test {

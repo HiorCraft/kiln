@@ -31,6 +31,7 @@ internal object ClientRun {
             clientJars.from(kiln.clientJar.map { listOf(it) }.orElse(emptyList()))
             clientJars.from(kilnClient)
             username.set(kiln.clientUsername)
+            quickPlay.set(kiln.quickPlay)
             gameDirectory.set(kiln.runDirectory.dir("client"))
             outputDirectory.set(project.layout.buildDirectory.dir("kiln/client"))
             this.versions = versions.copy(kiln = kiln.version.get(), minecraft = kiln.minecraftVersion.get())
@@ -56,6 +57,10 @@ abstract class PrepareKilnClient : DefaultTask() {
     @get:Input
     abstract val username: Property<String>
 
+    @get:Input
+    @get:org.gradle.api.tasks.Optional
+    abstract val quickPlay: Property<String>
+
     @get:Internal
     abstract val gameDirectory: DirectoryProperty
 
@@ -75,6 +80,6 @@ abstract class PrepareKilnClient : DefaultTask() {
         val out = outputDirectory.get().asFile
         out.mkdirs()
         out.resolve("settings.gradle.kts").writeText(ClientRunProject.settings())
-        out.resolve("build.gradle.kts").writeText(ClientRunProject.build(versions, jar, username.get(), gameDirectory.get().asFile))
+        out.resolve("build.gradle.kts").writeText(ClientRunProject.build(versions, jar, username.get(), gameDirectory.get().asFile, quickPlay.orNull))
     }
 }

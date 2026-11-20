@@ -10,8 +10,8 @@ class ClientRunProjectTest {
         fabricApi = "0.164.0+26.3", fabricLanguageKotlin = "1.14.2+kotlin.2.4.21", kotlin = "2.4.21", loom = "1.19.4",
     )
 
-    private fun build(jar: File = File("/tmp/kiln-client.jar"), user: String = "Dev", runDir: File = File("/tmp/run/client")) =
-        ClientRunProject.build(versions, jar, user, runDir)
+    private fun build(jar: File = File("/tmp/kiln-client.jar"), user: String = "Dev", runDir: File = File("/tmp/run/client"), quickPlay: String? = null) =
+        ClientRunProject.build(versions, jar, user, runDir, quickPlay)
 
     @Test
     fun buildScriptPinsVersions() {
@@ -34,6 +34,12 @@ class ClientRunProjectTest {
     fun usernameIsEscaped() {
         val script = build(user = "a\"b\$c")
         assertTrue(script.contains("\"a\\\"b\\\$c\""), script)
+    }
+
+    @Test
+    fun quickPlayJoinsTheServer() {
+        assertTrue(build(quickPlay = "localhost:25565").contains("\"--quickPlayMultiplayer\", \"localhost:25565\""))
+        assertTrue(!build().contains("quickPlay"))
     }
 
     @Test

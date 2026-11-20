@@ -26,7 +26,7 @@ object ClientRunProject {
         rootProject.name = "kiln-client-run"
     """.trimIndent() + "\n"
 
-    fun build(versions: KilnVersions, clientJar: File, username: String, runDir: File): String = """
+    fun build(versions: KilnVersions, clientJar: File, username: String, runDir: File, quickPlay: String? = null): String = """
         plugins {
             id("net.fabricmc.fabric-loom") version ${string(versions.loom)}
         }
@@ -48,11 +48,15 @@ object ClientRunProject {
                 named("client") {
                     client()
                     runDir(${string(path(runDir))})
-                    programArgs("--username", ${string(username)})
+                    programArgs("--username", ${string(username)})${quickPlayArgs(quickPlay)}
                 }
             }
         }
     """.trimIndent() + "\n"
+
+    /** Extra `programArgs` line that makes Minecraft join [quickPlay] (`host:port`) on start, or nothing. */
+    private fun quickPlayArgs(quickPlay: String?): String =
+        if (quickPlay == null) "" else "\n                    programArgs(\"--quickPlayMultiplayer\", ${string(quickPlay)})"
 
     private fun path(file: File): String = file.absolutePath.replace('\\', '/')
 

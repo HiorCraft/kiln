@@ -19,6 +19,9 @@ abstract class KilnExtension {
     /** Offline user name of `runClient` (default "Dev"). */
     abstract val clientUsername: Property<String>
 
+    /** `host:port` that `runClient` joins right after start (Minecraft quick play); unset = title screen. */
+    abstract val quickPlay: Property<String>
+
     /** Kiln server plugin jar for `runServer`; unset = `dev.kiln:kiln-server:<version>` from Maven. */
     abstract val serverJar: RegularFileProperty
 
