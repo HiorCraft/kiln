@@ -41,6 +41,9 @@ import dev.kiln.protocol.SetPostEffect
 import dev.kiln.protocol.CreativeTabs
 import dev.kiln.protocol.EntityTraits
 import dev.kiln.protocol.EntityTraitsRemove
+import dev.kiln.protocol.EntityAppearance
+import dev.kiln.protocol.PlayAnimation
+import dev.kiln.protocol.StopAnimation
 import dev.kiln.protocol.ShowToast
 import dev.kiln.protocol.UpdateScreen
 import dev.kiln.protocol.Viewport
@@ -383,6 +386,7 @@ class KilnClientImpl(
             is CreativeTabs -> KilnCreativeTabs.apply(message.reset, message.tabs)
             is EntityTraits -> KilnEntityTraits.CLIENT.set(message.entityId, message.solid)
             is EntityTraitsRemove -> KilnEntityTraits.CLIENT.remove(message.entityIds)
+            is EntityAppearance, is PlayAnimation, is StopAnimation -> logger.debug("Not handled yet: {}", message)
             is Welcome, is ExtensionManifest, is ExtensionChunk -> logger.debug("Ignoring {} in the play phase", message)
         }
     }

@@ -13,8 +13,9 @@ package dev.kiln.protocol
  * v6: resource-pack trees in packages (`assets/<id>/…`, [AssetRules]), permission `resources`, larger packages
  * ([ProtocolLimits.MAX_EXTENSION_PACKAGE_BYTES]), [SetPostEffect].
  * v7: [CreativeTabs], [EntityTraits], [EntityTraitsRemove] (furniture).
+ * v8: [EntityAppearance], [PlayAnimation], [StopAnimation] (custom entities).
  */
-public const val PROTOCOL_VERSION: Int = 7
+public const val PROTOCOL_VERSION: Int = 8
 
 /** The single plugin-messaging / custom-payload channel used in both directions. */
 public const val CHANNEL: String = "kiln:main"

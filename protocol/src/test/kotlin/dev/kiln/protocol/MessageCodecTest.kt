@@ -130,6 +130,11 @@ class MessageCodecTest {
             )),
             EntityTraits(42, solid = true),
             EntityTraitsRemove(listOf(1, 2, 3)),
+            EntityAppearance(7, "kiln_content:golem", 1.4f, 2.7f, headBone = true),
+            PlayAnimation(7, "smash", AnimationMode.ONCE, 1.5f),
+            PlayAnimation(7, "roar.loud", AnimationMode.LOOP, 1f),
+            StopAnimation(7, "smash"),
+            StopAnimation(7, null),
         )
     }
 
@@ -443,5 +448,14 @@ class MessageCodecTest {
             MessageCodec.encodeClientbound(CreativeTabs(true, listOf(entry.copy(items = List(ProtocolLimits.MAX_CREATIVE_ITEMS + 1) { ItemStackData(ResourceId.parse("stone")) }))))
         }
         assertThrows<ProtocolException> { MessageCodec.encodeClientbound(CreativeTabs(true, listOf(entry.copy(id = "no namespace")))) }
+    }
+
+    @Test
+    fun `entity appearance and animation limits are enforced`() {
+        assertThrows<ProtocolException> { MessageCodec.encodeClientbound(EntityAppearance(1, "golem", 1f, 1f, false)) } // no namespace
+        assertThrows<ProtocolException> { MessageCodec.encodeClientbound(EntityAppearance(1, "a:b", 17f, 1f, false)) }
+        assertThrows<ProtocolException> { MessageCodec.encodeClientbound(EntityAppearance(1, "a:b", 1f, 0.01f, false)) }
+        assertThrows<ProtocolException> { MessageCodec.encodeClientbound(PlayAnimation(1, "Smash!", AnimationMode.ONCE, 1f)) }
+        assertThrows<ProtocolException> { MessageCodec.encodeClientbound(PlayAnimation(1, "smash", AnimationMode.ONCE, 9f)) }
     }
 }

@@ -18,6 +18,9 @@ import dev.kiln.protocol.CreativeTabs
 import dev.kiln.protocol.ProtocolLimits
 import dev.kiln.protocol.EntityTraits
 import dev.kiln.protocol.EntityTraitsRemove
+import dev.kiln.protocol.EntityAppearance
+import dev.kiln.protocol.PlayAnimation
+import dev.kiln.protocol.StopAnimation
 import dev.kiln.protocol.ProtocolLimits.MAX_RESOURCE_ID_LENGTH
 import dev.kiln.protocol.Hello
 import dev.kiln.protocol.Ids
@@ -93,6 +96,10 @@ public object MessageCodec {
     private const val CREATIVE_TABS = 10
     private const val ENTITY_TRAITS = 11
     private const val ENTITY_TRAITS_REMOVE = 12
+    private const val ENTITY_APPEARANCE = 13
+    private const val PLAY_ANIMATION = 14
+    private const val STOP_ANIMATION = 15
+    private val ANIMATION_NAME = Regex("[a-z0-9_.]{1,64}")
 
     // ---- client -> server -----------------------------------------------------------------------------------
 
@@ -277,6 +284,27 @@ public object MessageCodec {
                 w.varInt(ENTITY_TRAITS_REMOVE)
                 w.list(message.entityIds, ProtocolLimits.MAX_ENTITY_IDS, "entity ids") { w.varInt(it) }
             }
+            is EntityAppearance -> {
+                w.varInt(ENTITY_APPEARANCE)
+                w.varInt(message.entityId)
+                requireResourceId(message.model)
+                w.string(message.model, MAX_RESOURCE_ID_LENGTH, "entity model")
+                w.float(checkSize(message.width))
+                w.float(checkSize(message.height))
+                w.boolean(message.headBone)
+            }
+            is PlayAnimation -> {
+                w.varInt(PLAY_ANIMATION)
+                w.varInt(message.entityId)
+                w.string(checkAnimation(message.name), 64, "animation")
+                w.varInt(message.mode, 0, 2, "animation mode")
+                w.float(checkSpeed(message.speed))
+            }
+            is StopAnimation -> {
+                w.varInt(STOP_ANIMATION)
+                w.varInt(message.entityId)
+                w.nullableString(message.name?.let(::checkAnimation), 64, "animation")
+            }
         }
     }
 
@@ -346,11 +374,35 @@ public object MessageCodec {
             )
             ENTITY_TRAITS -> EntityTraits(r.varInt(), r.boolean())
             ENTITY_TRAITS_REMOVE -> EntityTraitsRemove(r.list(ProtocolLimits.MAX_ENTITY_IDS, "entity ids") { r.varInt() })
+            ENTITY_APPEARANCE -> EntityAppearance(
+                r.varInt(),
+                r.string(MAX_RESOURCE_ID_LENGTH, "entity model").also { requireResourceId(it) },
+                checkSize(r.float()),
+                checkSize(r.float()),
+                r.boolean(),
+            )
+            PLAY_ANIMATION -> PlayAnimation(r.varInt(), checkAnimation(r.string(64, "animation")), r.varInt(0, 2, "animation mode"), checkSpeed(r.float()))
+            STOP_ANIMATION -> StopAnimation(r.varInt(), r.nullableString(64, "animation")?.let(::checkAnimation))
             else -> throw ProtocolException("Unknown clientbound message type $type")
         }
     }
 
     // ---- helpers --------------------------------------------------------------------------------------------
+
+    private fun checkSize(v: Float): Float {
+        if (!(v >= 0.05f && v <= 16f)) throw ProtocolException("Entity size $v outside 0.05..16")
+        return v
+    }
+
+    private fun checkSpeed(v: Float): Float {
+        if (!(v >= 0f && v <= 8f)) throw ProtocolException("Animation speed $v outside 0..8")
+        return v
+    }
+
+    private fun checkAnimation(name: String): String {
+        if (!ANIMATION_NAME.matches(name)) throw ProtocolException("Invalid animation name '${name.take(64)}'")
+        return name
+    }
 
     private fun requireResourceId(id: String) {
         if (!id.contains(':') || ResourceId.tryParse(id) == null) throw ProtocolException("Invalid resource id '$id'")

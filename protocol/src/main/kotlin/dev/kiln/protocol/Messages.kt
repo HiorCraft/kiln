@@ -220,3 +220,29 @@ public data class EntityTraits(val entityId: Int, val solid: Boolean) : Clientbo
 /** Play phase (v7): the entities stopped being tracked; their traits are dropped. */
 public data class EntityTraitsRemove(val entityIds: List<Int>) : ClientboundMessage
 
+/**
+ * Play phase (v8): entity [entityId] is drawn with the Kiln bone model [model] (`namespace:name`, files
+ * `assets/<ns>/kiln/entity/<name>.geo.json` / `.animation.json`, texture `textures/entity/<name>.png`) and has a
+ * [width] × [height] hit box; [headBone] = the bone `head` follows the look direction. Sent when it is tracked.
+ */
+public data class EntityAppearance(val entityId: Int, val model: String, val width: Float, val height: Float, val headBone: Boolean) :
+    ClientboundMessage
+
+/** How a [PlayAnimation] plays. */
+public object AnimationMode {
+    /** Once, then back to the state animation. */
+    public const val ONCE: Int = 0
+
+    /** Repeats until stopped. */
+    public const val LOOP: Int = 1
+
+    /** Once, then holds the last frame until stopped. */
+    public const val HOLD: Int = 2
+}
+
+/** Play phase (v8): plays animation [name] of the entity's model ([AnimationMode], [speed] 0..8). */
+public data class PlayAnimation(val entityId: Int, val name: String, val mode: Int, val speed: Float) : ClientboundMessage
+
+/** Play phase (v8): stops animation [name] (`null` = every server animation) of the entity. */
+public data class StopAnimation(val entityId: Int, val name: String?) : ClientboundMessage
+
