@@ -7,6 +7,7 @@ import dev.kiln.client.ext.ExtensionIcons
 import dev.kiln.client.ext.LoadingScreen
 import dev.kiln.client.resource.KilnPackSource
 import dev.kiln.client.resource.KilnPostEffect
+import net.minecraft.client.renderer.LevelTargetBundle
 import dev.kiln.client.ext.ExtensionManager
 import dev.kiln.client.ext.ExtensionPackage
 import dev.kiln.client.ext.TrustStore
@@ -312,7 +313,7 @@ class KilnClientImpl(
         (Minecraft.getInstance().gui.screen() as? KilnScreen)?.closeSilently = true
         ServerKeybinds.clear()
         extensions.unloadAll()
-        KilnPostEffect.current = null
+        KilnPostEffect.clear()
         // the extensions' resource pack goes with them
         if (KilnPackSource.clear()) Minecraft.getInstance().reloadResourcePacks()
         icons.clear()
@@ -361,7 +362,10 @@ class KilnClientImpl(
             }
             is ExtensionMessage -> extensions.onChannelMessage(message.channel.toString(), message.json)
             is ShowToast -> showToast(minecraft, message)
-            is SetPostEffect -> KilnPostEffect.current = message.id?.let(Identifier::tryParse)
+            is SetPostEffect -> KilnPostEffect.request(message.id?.let(Identifier::tryParse)) { id ->
+                val shaders = minecraft.shaderManager
+                shaders.isPostEffectValid(id, LevelTargetBundle.MAIN_TARGETS) && shaders.getPostChain(id, LevelTargetBundle.MAIN_TARGETS) != null
+            }
             is Welcome, is ExtensionManifest, is ExtensionChunk -> logger.debug("Ignoring {} in the play phase", message)
         }
     }

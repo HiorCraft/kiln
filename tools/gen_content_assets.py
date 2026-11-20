@@ -122,6 +122,8 @@ def post_effect() -> None:
                 "fragment_shader": "minecraft:post/blit",
                 "inputs": [{"sampler_name": "In", "target": "swap"}],
                 "output": "minecraft:main",
+                # blit declares the uniform block BlitConfig; every declared block needs values
+                "uniforms": {"BlitConfig": [{"name": "ColorModulate", "type": "vec4", "value": [1.0, 1.0, 1.0, 1.0]}]},
             },
         ],
     })
