@@ -9,6 +9,8 @@ import dev.kiln.client.resource.KilnPackSource
 import dev.kiln.client.resource.DeferredReload
 import dev.kiln.client.creative.KilnCreativeTabs
 import dev.kiln.client.entity.KilnEntityTraits
+import dev.kiln.client.entity.KilnEntityAppearances
+import dev.kiln.client.entity.KilnModels
 import dev.kiln.client.resource.KilnPostEffect
 import dev.kiln.client.resource.KilnResourceReload
 import net.minecraft.client.renderer.LevelTargetBundle
@@ -161,6 +163,7 @@ class KilnClientImpl(
             KilnResourceReload.CLIENT.begin { error -> if (session === this) done(error) }
             minecraft.reloadResourcePacks().whenComplete { _, error ->
                 minecraft.execute {
+                    KilnModels.clear() // entity models come from the new resources
                     if (error != null) KilnResourceReload.CLIENT.failed(error) { KilnPackSource.clear() } else KilnResourceReload.CLIENT.completed()
                 }
             }
@@ -227,6 +230,7 @@ class KilnClientImpl(
             logger.debug("Reconfiguration: keeping the kiln session")
             // a proxy may switch the backend here: its entity ids and creative content are not ours any more
             KilnEntityTraits.CLIENT.clear()
+            KilnEntityAppearances.clear()
             KilnCreativeTabs.clear()
             return
         }
@@ -331,6 +335,7 @@ class KilnClientImpl(
         KilnPostEffect.clear()
         KilnCreativeTabs.clear()
         KilnEntityTraits.CLIENT.clear()
+        KilnEntityAppearances.clear()
         // the extensions' resource pack goes with them, reloaded once the disconnect is complete
         if (KilnPackSource.clear()) packReload.request()
         icons.clear()
@@ -385,8 +390,13 @@ class KilnClientImpl(
             }
             is CreativeTabs -> KilnCreativeTabs.apply(message.reset, message.tabs)
             is EntityTraits -> KilnEntityTraits.CLIENT.set(message.entityId, message.solid)
-            is EntityTraitsRemove -> KilnEntityTraits.CLIENT.remove(message.entityIds)
-            is EntityAppearance, is PlayAnimation, is StopAnimation -> logger.debug("Not handled yet: {}", message)
+            is EntityTraitsRemove -> {
+                KilnEntityTraits.CLIENT.remove(message.entityIds)
+                KilnEntityAppearances.remove(message.entityIds)
+            }
+            is EntityAppearance -> KilnEntityAppearances.set(message)
+            is PlayAnimation -> KilnEntityAppearances.play(message.entityId, message.name, message.mode, message.speed, Util.getMillis() / 1000.0)
+            is StopAnimation -> KilnEntityAppearances.stop(message.entityId, message.name)
             is Welcome, is ExtensionManifest, is ExtensionChunk -> logger.debug("Ignoring {} in the play phase", message)
         }
     }

@@ -1,6 +1,8 @@
 package dev.kiln.client
 
 import dev.kiln.client.creative.KilnCreativeTabs
+import dev.kiln.client.entity.KilnEntityAppearances
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientEntityEvents
 import dev.kiln.client.ext.ExtensionCache
 import dev.kiln.client.ext.TrustStore
 import dev.kiln.client.keybind.KeybindStore
@@ -70,6 +72,10 @@ object KilnClientMod : ClientModInitializer {
         ClientPlayConnectionEvents.JOIN.register { _, _, minecraft -> onMainThread(minecraft) { client.onJoin() } }
         ClientPlayConnectionEvents.DISCONNECT.register { _, minecraft -> onMainThread(minecraft) { client.onDisconnect() } }
         ClientTickEvents.END_CLIENT_TICK.register { client.tick() }
+        // custom entities spawned after their EntityAppearance arrived: apply the announced hit box
+        ClientEntityEvents.ENTITY_LOAD.register { entity, _ ->
+            if (KilnEntityAppearances.get(entity.id) != null) entity.refreshDimensions()
+        }
 
         // HUD layers of extensions: above the world overlays, below every vanilla HUD element
         HudElementRegistry.attachElementAfter(VanillaHudElements.MISC_OVERLAYS, Identifier.fromNamespaceAndPath("kiln", "extensions"), client.extensions)

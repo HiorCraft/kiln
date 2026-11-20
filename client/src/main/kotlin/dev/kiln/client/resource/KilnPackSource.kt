@@ -26,12 +26,14 @@ object KilnPackSource : RepositorySource {
     /** Resources of the loaded extensions (paths relative to `assets/`). */
     fun set(files: Map<String, ByteArray>) {
         this.files = files.toMap()
+        dev.kiln.client.entity.KilnModels.clear()
     }
 
     /** Removes the pack; `true` if there was one (a resource reload is due). */
     fun clear(): Boolean {
         val had = files.isNotEmpty()
         files = emptyMap()
+        dev.kiln.client.entity.KilnModels.clear()
         return had
     }
 
