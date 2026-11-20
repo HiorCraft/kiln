@@ -3,6 +3,7 @@ package dev.kiln.server.api
 import dev.kiln.server.api.extension.Extension
 import dev.kiln.server.api.extension.ExtensionSource
 import dev.kiln.server.api.item.CustomItems
+import dev.kiln.server.api.creative.CreativeTabs
 import dev.kiln.server.api.enchantment.CustomEnchantments
 import dev.kiln.server.api.keybind.Keybind
 import dev.kiln.server.api.keybind.KeybindBuilder
@@ -127,6 +128,9 @@ public interface Kiln {
      * [dev.kiln.server.api.enchantment.KilnBootstrap].
      */
     public val enchantments: CustomEnchantments
+
+    /** Creative-inventory tabs and additions to vanilla tabs (shown by the Kiln runtime). */
+    public val creativeTabs: CreativeTabs
 
     public companion object {
         /** The registered implementation; throws if the Kiln plugin is not loaded. */

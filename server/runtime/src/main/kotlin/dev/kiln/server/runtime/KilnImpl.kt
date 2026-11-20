@@ -42,6 +42,7 @@ import dev.kiln.server.runtime.item.CustomItemRegistry
 import dev.kiln.server.runtime.content.PostEffects
 import dev.kiln.protocol.SetPostEffect
 import dev.kiln.server.runtime.enchantment.EnchantmentHookRegistry
+import dev.kiln.server.runtime.creative.CreativeTabRegistry
 import dev.kiln.server.runtime.keybind.KeybindImpl
 import dev.kiln.server.runtime.keybind.KeybindRegistry
 import dev.kiln.server.runtime.screen.EventValidator
@@ -74,6 +75,9 @@ class KilnImpl(private val plugin: KilnPlugin) : Kiln, ExtensionMessenger {
 
     override val enchantments: EnchantmentHookRegistry = EnchantmentHookRegistry(plugin.logger)
 
+    override val creativeTabs: CreativeTabRegistry = CreativeTabRegistry(plugin.logger, extensionRegistry::impl, ::scheduleCreativeBroadcast)
+    private var creativeDirty = false
+
     val keybindRegistry = KeybindRegistry(
         pressedLookup = { player, id -> sessions[player.uniqueId]?.pressedKeys?.contains(id) == true },
         onChanged = ::scheduleKeybindBroadcast,
@@ -100,6 +104,7 @@ class KilnImpl(private val plugin: KilnPlugin) : Kiln, ExtensionMessenger {
         val session = PlayerSession(player)
         sessions[player.uniqueId] = session
         send(session, DeclareKeybinds(keybindRegistry.declarations()))
+        sendCreativeTabs(session, creativeTabs.messages())
         debug { "${player.name} joined with kiln session" }
     }
 
@@ -168,6 +173,27 @@ class KilnImpl(private val plugin: KilnPlugin) : Kiln, ExtensionMessenger {
             keybindsDirty = false
             val message = DeclareKeybinds(keybindRegistry.declarations())
             sessions.values.forEach { send(it, message) }
+        })
+    }
+
+    private fun sendCreativeTabs(session: PlayerSession, messages: List<dev.kiln.protocol.CreativeTabs>) {
+        for (message in messages) {
+            try {
+                send(session, message)
+            } catch (e: IllegalArgumentException) {
+                logger.warning("Creative tab ${message.tabs.firstOrNull()?.id} not sent to ${session.player.name}: ${e.message}")
+            }
+        }
+    }
+
+    private fun scheduleCreativeBroadcast() {
+        if (creativeDirty || sessions.isEmpty() || !plugin.isEnabled) return
+        creativeDirty = true
+        // coalesce several changes in the same tick into one update
+        Bukkit.getScheduler().runTask(plugin, Runnable {
+            creativeDirty = false
+            val messages = creativeTabs.messages()
+            sessions.values.forEach { sendCreativeTabs(it, messages) }
         })
     }
 
@@ -411,6 +437,7 @@ class KilnImpl(private val plugin: KilnPlugin) : Kiln, ExtensionMessenger {
         keybindRegistry.removeAll(disabled)
         items.removeAll(disabled)
         enchantments.removeAll(disabled)
+        creativeTabs.removeAll(disabled)
         extensionRegistry.removeAll(disabled)
         val loader = disabled.javaClass.classLoader
         sessions.values.mapNotNull { it.screen }
