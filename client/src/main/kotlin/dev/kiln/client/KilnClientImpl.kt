@@ -7,6 +7,7 @@ import dev.kiln.client.ext.ExtensionIcons
 import dev.kiln.client.ext.LoadingScreen
 import dev.kiln.client.resource.KilnPackSource
 import dev.kiln.client.resource.KilnPostEffect
+import dev.kiln.client.resource.KilnResourceReload
 import net.minecraft.client.renderer.LevelTargetBundle
 import dev.kiln.client.ext.ExtensionManager
 import dev.kiln.client.ext.ExtensionPackage
@@ -147,9 +148,11 @@ class KilnClientImpl(
             val minecraft = Minecraft.getInstance()
             KilnPackSource.set(extensions.assets)
             logger.info("Reloading resources with {} extension asset file(s)", extensions.assets.size)
+            // failures do not complete the future; MinecraftReloadMixin reports them through KilnResourceReload
+            KilnResourceReload.CLIENT.begin { error -> if (session === this) done(error) }
             minecraft.reloadResourcePacks().whenComplete { _, error ->
                 minecraft.execute {
-                    if (session === this) done(error?.let { it.message ?: it.javaClass.simpleName })
+                    if (error != null) KilnResourceReload.CLIENT.failed(error) { KilnPackSource.clear() } else KilnResourceReload.CLIENT.completed()
                 }
             }
         }

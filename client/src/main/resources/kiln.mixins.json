@@ -9,6 +9,7 @@
     "GameRendererMixin",
     "KeyMappingAccessor",
     "KeyMappingCategoryAccessor",
+    "MinecraftReloadMixin",
     "OptionsAccessor",
     "OptionsMixin",
     "OptionsScreenMixin",
